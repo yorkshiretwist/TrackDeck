@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(TrackDeck VERSION 1.0.0)
+project(TrackDeck VERSION 0.1.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,10 +33,10 @@ set(TRACKDECK_ASIO_SDK_PATH "" CACHE PATH "Path to the extracted Steinberg ASIO 
 add_subdirectory(JUCE)
 
 juce_add_plugin(TrackDeck
-    COMPANY_NAME                "YourCompany"
+    COMPANY_NAME                "Chris Taylor"
     PLUGIN_MANUFACTURER_CODE    Ycmp
     PLUGIN_CODE                 Tdck
-    FORMATS                     VST3 Standalone
+    FORMATS                     AU VST3 Standalone
     PRODUCT_NAME                "TrackDeck"
     IS_SYNTH                    FALSE
     NEEDS_MIDI_INPUT            FALSE

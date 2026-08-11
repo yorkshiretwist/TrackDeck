@@ -6,6 +6,8 @@ sample-sync, and exposes **one mono plugin output bus per physical output**
 to any of them — so a stereo file can feed two separate physical outputs and
 a mono file feeds just one, all selectable and changeable from the UI.
 
+*AI USED*: Claude Code was used to generate this plugin, and write the README (except for this line). Please let me know if there are errors, omissions, or clarifications required.
+
 ## Feature checklist
 
 | Requirement | Where it's implemented |
@@ -57,7 +59,7 @@ a mono file feeds just one, all selectable and changeable from the UI.
 ## Project layout
 
 ```
-TrackDeck/
+trackdeck/
   CMakeLists.txt
   Source/
     FilePlayer.h         # decodes + resamples one file, handles mute/position
@@ -150,10 +152,10 @@ them from a terminal (Windows: the Developer Command Prompt from step 4
 above).
 
 1. Get the plugin source (skip this if you already have the
-   `TrackDeck` folder from wherever you downloaded/extracted it),
+   `trackdeck` folder from wherever you downloaded/extracted it),
    then move into it:
    ```
-   cd TrackDeck
+   cd trackdeck
    ```
 2. Clone JUCE into a subfolder called `JUCE` right next to `CMakeLists.txt`.
    This downloads the JUCE framework source code — nothing needs to be
@@ -162,7 +164,7 @@ above).
    git clone --branch 7.0.12 --depth 1 https://github.com/juce-framework/JUCE.git
    ```
    This creates network traffic of a few hundred MB and may take a few
-   minutes. When it's done you should have a `TrackDeck/JUCE/`
+   minutes. When it's done you should have a `trackdeck/JUCE/`
    folder full of JUCE's own source code.
 3. Ask CMake to generate build files (this step also compiles JUCE's own
    helper tools, so it can take a minute or two the first time):
@@ -249,7 +251,7 @@ after it's done, every future build just works.
    `common`, `host`, `driver`, `pc`, etc. — if you see one more level of
    nesting (e.g. `ASIOSDK2.3.3\ASIOSDK2.3.3\common`), point at the inner
    folder instead.
-3. **Do not put the SDK inside the `TrackDeck` project folder** if
+3. **Do not put the SDK inside the `trackdeck` project folder** if
    you intend to share/commit this project anywhere — its license doesn't
    allow redistribution. Keep it in a separate location like the `C:\SDKs\`
    example above.
@@ -287,7 +289,7 @@ cmake --build build --config Release
 
 - **`add_subdirectory(JUCE)` / "JUCE does not exist" error from CMake** — you
   skipped or the `git clone` step failed. Make sure there's a `JUCE` folder
-  directly inside `TrackDeck/` containing JUCE's own
+  directly inside `trackdeck/` containing JUCE's own
   `CMakeLists.txt`.
 - **Windows: "cl.exe not found" or similar compiler errors** — you're using a
   plain Command Prompt/PowerShell instead of the "Developer Command Prompt

@@ -1,6 +1,10 @@
 name: trackdeck-compile
 
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
 
 env:
   BUILD_TYPE: Release

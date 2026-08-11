@@ -1,0 +1,9 @@
+In dev command prompt:
+
+To initialise if JUCE has been changed/added:
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+To build:
+
+cmake --build build --config Release

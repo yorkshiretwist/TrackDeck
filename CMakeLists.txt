@@ -31,10 +31,11 @@ set(TRACKDECK_ASIO_SDK_PATH "" CACHE PATH "Path to the extracted Steinberg ASIO 
 #   2) Or point add_subdirectory() below at wherever you already keep JUCE.
 # ---------------------------------------------------------------------------
 add_subdirectory(JUCE)
+add_subdirectory(libs/clap-juce-extensions EXCLUDE_FROM_ALL)
 
 juce_add_plugin(TrackDeck
     COMPANY_NAME                "Chris Taylor"
-    PLUGIN_MANUFACTURER_CODE    Ycmp
+    PLUGIN_MANUFACTURER_CODE    Chta
     PLUGIN_CODE                 Tdck
     FORMATS                     AU VST3 Standalone
     PRODUCT_NAME                "TrackDeck"
@@ -44,6 +45,13 @@ juce_add_plugin(TrackDeck
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     VST3_CATEGORIES             Generator Tools
+)
+
+clap_juce_extensions_plugin(
+    TARGET                      TrackDeck
+    CLAP_ID                     "com.christaylor.trackdeck"
+    CLAP_FEATURES               audio-effect utility
+    CLAP_DESCRIPTION            "A simple audio plugin for playing multiple audio files, for example synced backing track stems"
 )
 
 juce_generate_juce_header(TrackDeck)

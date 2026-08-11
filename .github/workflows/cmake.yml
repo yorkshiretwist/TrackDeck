@@ -55,6 +55,8 @@ jobs:
 
       - name: "Preparation"
         uses: actions/checkout@v2
+        with:
+          submodules: recursive
 
       - name: "(JUCE) Clone Repository"
         uses: actions/checkout@v2
@@ -69,14 +71,13 @@ jobs:
       - name: "Build"
         working-directory: ${{runner.workspace}}/trackdeck
         run: cmake --build build --config Release
-      # https://github.com/sudara/cmake-includes/blob/1f5ccb8c040d0a7ec489fdab11831ff310df1077/GitHubENV.cmake#L4
-      - name: Read in .env from CMake # see GitHubENV.cmake
+      
+      - name: Set version and additional env vars
+        working-directory: ${{runner.workspace}}/trackdeck
         run: |
-          cat .env # show us the config
-          cat .env >> $GITHUB_ENV # pull in our PRODUCT_NAME, etc
+          VERSION=$(grep -oP '(?<=project\(TrackDeck VERSION )[0-9]+\.[0-9]+\.[0-9]+' CMakeLists.txt)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
 
-      - name: Set additional env vars for next steps
-        run: |
           ARTIFACTS_PATH=${{ env.BUILD_DIR }}/${{ env.PROJECT_NAME }}_artefacts/${{ env.BUILD_TYPE }}
           echo "ARTIFACTS_PATH=$ARTIFACTS_PATH" >> $GITHUB_ENV
           echo "VST3_PATH=$ARTIFACTS_PATH/VST3/${{ env.PRODUCT_NAME }}.vst3" >> $GITHUB_ENV
@@ -84,7 +85,7 @@ jobs:
           echo "AUV3_PATH=$ARTIFACTS_PATH/AUv3/${{ env.PRODUCT_NAME }}.appex" >> $GITHUB_ENV
           echo "CLAP_PATH=$ARTIFACTS_PATH/CLAP/${{ env.PRODUCT_NAME }}.clap" >> $GITHUB_ENV
           echo "STANDALONE_PATH=$ARTIFACTS_PATH/Standalone/${{ env.PRODUCT_NAME }}.app" >> $GITHUB_ENV
-          echo "ARTIFACT_NAME=${{ env.PRODUCT_NAME }}-${{ env.VERSION }}-${{ matrix.name }}" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=${{ env.PRODUCT_NAME }}-${VERSION}-${{ matrix.name }}" >> $GITHUB_ENV
 
       - name: Pluginval
         run: |

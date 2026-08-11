@@ -136,6 +136,21 @@ jobs:
       contents: write
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Parse release.md into title + notes
+        id: parse
+        run: |
+          TITLE=$(awk '/^# /{sub(/^# /,""); print; exit}' release.md)
+          echo "title=$TITLE" >> "$GITHUB_OUTPUT"
+
+          awk '
+            !skipped && /^# / { skipped=1; next }
+            skipped && !bodystarted && /^$/ { next }
+            { bodystarted=1; print }
+          ' release.md > release_body.md
+
       - name: Download all format artifacts
         uses: actions/download-artifact@v4
         with:
@@ -147,8 +162,17 @@ jobs:
           for dir in */; do
             name="${dir%/}"
             find "$name" -type f \( -name "*.exe" -o -path "*Contents/MacOS/*" -o -perm -u+x \) -exec chmod +x {} \; 2>/dev/null || true
-            if [[ "$name" == *-VST3 ]]; then
-              (cd "$name" && zip -r "../${name}.vst3" .)
+
+            case "$name" in
+              *-VST3)             bundle_name="TrackDeck.vst3" ;;
+              *-AU)                bundle_name="TrackDeck.component" ;;
+              macOS-*Standalone)   bundle_name="TrackDeck.app" ;;
+              *)                   bundle_name="" ;;
+            esac
+
+            if [ -n "$bundle_name" ]; then
+              mv "$name" "$bundle_name"
+              zip -r "${name}-${{ github.ref_name }}.zip" "$bundle_name"
             else
               (cd "$name" && zip -r "../${name}-${{ github.ref_name }}.zip" .)
             fi
@@ -157,5 +181,8 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          name: ${{ steps.parse.outputs.title }}
+          body_path: release_body.md
+          generate_release_notes: true
           files: artifacts/*.zip
           generate_release_notes: true

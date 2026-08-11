@@ -8,6 +8,8 @@ a mono file feeds just one, all selectable and changeable from the UI.
 
 *AI USED*: Claude Code was used to generate this plugin, and write the README (except for this line). Please let me know if there are errors, omissions, or clarifications required.
 
+![Screenshot of version 0.1.0](media/0.1.0_screenshot.jpg)
+
 ## Feature checklist
 
 | Requirement | Where it's implemented |

@@ -81,14 +81,22 @@ jobs:
         run: |
           VERSION=$(sed -n 's/.*project(TrackDeck VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
+
           ARTIFACTS_PATH=${{ env.BUILD_DIR }}/${{ env.PROJECT_NAME }}_artefacts/${{ env.BUILD_TYPE }}
           echo "ARTIFACTS_PATH=$ARTIFACTS_PATH" >> $GITHUB_ENV
           echo "VST3_PATH=$ARTIFACTS_PATH/VST3/${{ env.PRODUCT_NAME }}.vst3" >> $GITHUB_ENV
           echo "AU_PATH=$ARTIFACTS_PATH/AU/${{ env.PRODUCT_NAME }}.component" >> $GITHUB_ENV
-          echo "AUV3_PATH=$ARTIFACTS_PATH/AUv3/${{ env.PRODUCT_NAME }}.appex" >> $GITHUB_ENV
           echo "CLAP_PATH=$ARTIFACTS_PATH/CLAP/${{ env.PRODUCT_NAME }}.clap" >> $GITHUB_ENV
-          echo "STANDALONE_PATH=$ARTIFACTS_PATH/Standalone/${{ env.PRODUCT_NAME }}.app" >> $GITHUB_ENV
-          echo "ARTIFACT_NAME=${{ env.PRODUCT_NAME }}-${VERSION}-${{ matrix.name }}" >> $GITHUB_ENV
+
+          if [ "${{ matrix.name }}" == "macOS" ]; then
+            echo "STANDALONE_PATH=$ARTIFACTS_PATH/Standalone/${{ env.PRODUCT_NAME }}.app" >> $GITHUB_ENV
+          elif [ "${{ matrix.name }}" == "Windows" ]; then
+            echo "STANDALONE_PATH=$ARTIFACTS_PATH/Standalone/${{ env.PRODUCT_NAME }}.exe" >> $GITHUB_ENV
+          else
+            echo "STANDALONE_PATH=$ARTIFACTS_PATH/Standalone/${{ env.PRODUCT_NAME }}" >> $GITHUB_ENV
+          fi
+
+          echo "ARTIFACT_NAME=${{ env.PRODUCT_NAME }}-${{ env.VERSION }}-${{ matrix.name }}" >> $GITHUB_ENV
 
       - name: Pluginval
         run: |
@@ -124,6 +132,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Download all format artifacts
@@ -137,7 +147,11 @@ jobs:
           for dir in */; do
             name="${dir%/}"
             find "$name" -type f \( -name "*.exe" -o -path "*Contents/MacOS/*" -o -perm -u+x \) -exec chmod +x {} \; 2>/dev/null || true
-            (cd "$name" && zip -r "../${name}-${{ github.ref_name }}.zip" .)
+            if [[ "$name" == *-VST3 ]]; then
+              (cd "$name" && zip -r "../${name}.vst3" .)
+            else
+              (cd "$name" && zip -r "../${name}-${{ github.ref_name }}.zip" .)
+            fi
           done
 
       - name: Publish GitHub Release

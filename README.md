@@ -10,6 +10,8 @@ together, every time.
 
 ![Screenshot of version 0.2.0](media/0.2.0_screenshot.jpg)
 
+*AI USED*: Claude Code was used to generate this plugin, and write the README (except for this line). Please let me know if there are errors, omissions, or clarifications required.
+
 ## What TrackDeck does
 
 - **Plays multiple tracks in perfect sync.** Load as many files as you need

@@ -8,6 +8,8 @@ spare between songs.
 Load your backing tracks, stems, or cues. Hit play. Everything starts
 together, every time.
 
+![Screenshot of version 0.2.0](media/0.2.0_screenshot.jpg)
+
 ## What TrackDeck does
 
 - **Plays multiple tracks in perfect sync.** Load as many files as you need

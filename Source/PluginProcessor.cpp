@@ -1,6 +1,55 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 
+namespace
+{
+    //==============================================================================
+    // Small helpers for the hand-rolled YAML subset used by .tracks files.
+    // These deliberately only handle exactly what stateTreeToYaml() writes -
+    // this isn't a general-purpose YAML reader/writer.
+
+    juce::String yamlQuoteString (const juce::String& s)
+    {
+        return "\"" + s.replace ("\\", "\\\\").replace ("\"", "\\\"") + "\"";
+    }
+
+    juce::String yamlUnquoteString (const juce::String& raw)
+    {
+        juce::String s = raw.trim();
+
+        if (s.length() >= 2 && s.startsWithChar ('"') && s.endsWithChar ('"'))
+            s = s.substring (1, s.length() - 1).replace ("\\\"", "\"").replace ("\\\\", "\\");
+
+        return s;
+    }
+
+    // "[0, 1]" -> "0,1" (matches the CSV format buildStateTree()'s "outputs"
+    // property already uses elsewhere).
+    juce::String yamlIntListToCsv (const juce::String& raw)
+    {
+        juce::String s = raw.trim();
+
+        if (s.startsWithChar ('['))
+            s = s.substring (1);
+
+        if (s.endsWithChar (']'))
+            s = s.dropLastCharacters (1);
+
+        juce::StringArray tokens;
+        tokens.addTokens (s, ",", "");
+
+        for (auto& t : tokens)
+            t = t.trim();
+
+        tokens.removeEmptyStrings();
+
+        return tokens.joinIntoString (",");
+    }
+}
+
+//==============================================================================
+const juce::String TrackDeckAudioProcessor::tracksFileExtension = "tracks";
+
 juce::AudioProcessor::BusesProperties TrackDeckAudioProcessor::buildBusesProperties()
 {
     BusesProperties props;
@@ -20,9 +69,9 @@ TrackDeckAudioProcessor::TrackDeckAudioProcessor()
     for (int i = 0; i < maxTracks; ++i)
         players.add (new FilePlayer (formatManager));
 
-    // Restore whatever was loaded last time, independent of any DAW project -
-    // see the class comment for how this interacts with host state restore.
-    loadPersistedSettings();
+    // Deliberately no auto-restore here - every new instance (standalone or
+    // freshly inserted in a host) starts with a blank set of tracks. See
+    // the class comment for how state is handled instead.
 }
 
 TrackDeckAudioProcessor::~TrackDeckAudioProcessor() = default;
@@ -180,7 +229,6 @@ bool TrackDeckAudioProcessor::loadFileIntoSlot (int slot, const juce::File& file
         return false;
 
     assignDefaultOutputs (slot);
-    savePersistedSettings();
     notifyHostOfStateChange();
     return true;
 }
@@ -190,7 +238,6 @@ void TrackDeckAudioProcessor::removeSlot (int slot)
     if (juce::isPositiveAndBelow (slot, players.size()))
     {
         players[slot]->clear();
-        savePersistedSettings();
         notifyHostOfStateChange();
     }
 }
@@ -200,7 +247,6 @@ void TrackDeckAudioProcessor::setSlotMuted (int slot, bool muted)
     if (juce::isPositiveAndBelow (slot, players.size()))
     {
         players[slot]->setMuted (muted);
-        savePersistedSettings();
         notifyHostOfStateChange();
     }
 }
@@ -215,7 +261,6 @@ void TrackDeckAudioProcessor::setSlotVolume (int slot, float volume)
     if (juce::isPositiveAndBelow (slot, players.size()))
     {
         players[slot]->setGain (volume);
-        savePersistedSettings();
         notifyHostOfStateChange();
     }
 }
@@ -277,7 +322,6 @@ void TrackDeckAudioProcessor::setSlotOutputChannel (int slot, int fileChannel, i
 
     outputIndex = juce::jlimit (0, maxOutputChannels - 1, outputIndex);
     players[slot]->setOutputForChannel (fileChannel, outputIndex);
-    savePersistedSettings();
     notifyHostOfStateChange();
 }
 
@@ -296,7 +340,6 @@ void TrackDeckAudioProcessor::setSlotOutputPair (int slot, int pairIndex)
     players[slot]->setOutputForChannel (0, left);
     players[slot]->setOutputForChannel (1, left + 1);
 
-    savePersistedSettings();
     notifyHostOfStateChange();
 }
 
@@ -456,45 +499,138 @@ void TrackDeckAudioProcessor::applyStateTree (const juce::ValueTree& state)
 }
 
 //==============================================================================
-juce::File TrackDeckAudioProcessor::getPersistedSettingsFile()
+juce::String TrackDeckAudioProcessor::stateTreeToYaml (const juce::ValueTree& state) const
 {
-    auto dir = juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                   .getChildFile ("TrackDeck");
+    juce::StringArray entries;
 
-    dir.createDirectory();
+    for (auto track : state)
+    {
+        const juce::String path = track.getProperty ("path", juce::String());
 
-    return dir.getChildFile ("last_session.xml");
+        if (path.isEmpty())
+            continue; // skip empty slots - only loaded tracks appear in the file
+
+        juce::String entry;
+        entry << "  - path: " << yamlQuoteString (path) << "\n";
+        entry << "    muted: " << ((bool) track.getProperty ("muted", false) ? "true" : "false") << "\n";
+        entry << "    volume: " << juce::String ((double) track.getProperty ("volume", 1.0), 4) << "\n";
+
+        const juce::String outputsCsv = track.getProperty ("outputs", juce::String());
+        juce::StringArray tokens;
+        tokens.addTokens (outputsCsv, ",", "");
+        entry << "    outputs: [" << tokens.joinIntoString (", ") << "]";
+
+        entries.add (entry);
+    }
+
+    juce::String yaml;
+    yaml << "# TrackDeck track configuration - saved by TrackDeck, safe to hand-edit\n";
+    yaml << "tracks:";
+
+    if (entries.isEmpty())
+        yaml << " []\n";
+    else
+        yaml << "\n" << entries.joinIntoString ("\n") << "\n";
+
+    return yaml;
 }
 
-void TrackDeckAudioProcessor::savePersistedSettings() const
+juce::ValueTree TrackDeckAudioProcessor::yamlToStateTree (const juce::String& yamlText) const
 {
-    auto state = buildStateTree();
-    std::unique_ptr<juce::XmlElement> xml (state.createXml());
+    juce::StringArray lines;
+    lines.addLines (yamlText);
 
-    if (xml != nullptr)
-        xml->writeTo (getPersistedSettingsFile());
+    int i = 0;
+
+    while (i < lines.size() && ! lines[i].trim().startsWith ("tracks:"))
+        ++i;
+
+    if (i >= lines.size())
+        return {}; // no "tracks:" key found anywhere - not a recognisable .tracks file
+
+    juce::ValueTree state ("TRACKDECK_STATE");
+    ++i; // move past the "tracks:" line itself
+
+    int trackIndex = 0;
+    juce::ValueTree currentTrack;
+
+    for (; i < lines.size() && trackIndex < maxTracks; ++i)
+    {
+        juce::String trimmed = lines[i].trim();
+
+        if (trimmed.isEmpty() || trimmed.startsWithChar ('#'))
+            continue;
+
+        if (trimmed.startsWith ("- "))
+        {
+            if (currentTrack.isValid())
+                state.addChild (currentTrack, -1, nullptr);
+
+            currentTrack = juce::ValueTree ("TRACK");
+            currentTrack.setProperty ("index", trackIndex, nullptr);
+            ++trackIndex;
+
+            trimmed = trimmed.substring (2).trim(); // first key may share the "- " line
+        }
+
+        if (! currentTrack.isValid())
+            continue; // stray content before any "- " list item - ignore
+
+        const int colon = trimmed.indexOfChar (':');
+
+        if (colon <= 0)
+            continue;
+
+        const juce::String key   = trimmed.substring (0, colon).trim();
+        const juce::String value = trimmed.substring (colon + 1).trim();
+
+        if (key == "path")
+            currentTrack.setProperty ("path", yamlUnquoteString (value), nullptr);
+        else if (key == "muted")
+            currentTrack.setProperty ("muted", value.equalsIgnoreCase ("true"), nullptr);
+        else if (key == "volume")
+            currentTrack.setProperty ("volume", value.getDoubleValue(), nullptr);
+        else if (key == "outputs")
+            currentTrack.setProperty ("outputs", yamlIntListToCsv (value), nullptr);
+    }
+
+    if (currentTrack.isValid())
+        state.addChild (currentTrack, -1, nullptr);
+
+    return state;
 }
 
+bool TrackDeckAudioProcessor::saveTracksToFile (const juce::File& file) const
+{
+    return file.replaceWithText (stateTreeToYaml (buildStateTree()));
+}
+
+bool TrackDeckAudioProcessor::loadTracksFromFile (const juce::File& file)
+{
+    if (! file.existsAsFile())
+        return false;
+
+    auto parsedState = yamlToStateTree (file.loadFileAsString());
+
+    if (! parsedState.isValid())
+        return false; // not a recognisable .tracks file - nothing was changed
+
+    // Full replace, not a merge: clear every slot before applying whatever
+    // the file describes (which may itself be an intentionally empty list).
+    for (auto* p : players)
+        p->clear();
+
+    applyStateTree (parsedState);
+    notifyHostOfStateChange();
+    return true;
+}
+
+//==============================================================================
 void TrackDeckAudioProcessor::notifyHostOfStateChange()
 {
     juce::AudioProcessorListener::ChangeDetails details;
     details.nonParameterStateChanged = true;
     updateHostDisplay (details);
-}
-
-void TrackDeckAudioProcessor::loadPersistedSettings()
-{
-    auto file = getPersistedSettingsFile();
-
-    if (! file.existsAsFile())
-        return;
-
-    std::unique_ptr<juce::XmlElement> xml (juce::XmlDocument::parse (file));
-
-    if (xml == nullptr)
-        return;
-
-    applyStateTree (juce::ValueTree::fromXml (*xml));
 }
 
 //==============================================================================
@@ -513,11 +649,6 @@ void TrackDeckAudioProcessor::setStateInformation (const void* data, int sizeInB
         return;
 
     applyStateTree (juce::ValueTree::fromXml (*xml));
-
-    // A DAW project was just loaded with its own saved state for this
-    // plugin instance - treat that as the new "last used" settings too, so
-    // the two persistence mechanisms stay in sync.
-    savePersistedSettings();
 }
 
 //==============================================================================

@@ -403,6 +403,8 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     addAndMakeVisible (stopButton);
     addAndMakeVisible (positionLabel);
     addAndMakeVisible (addFilesButton);
+    addAndMakeVisible (saveTracksButton);
+    addAndMakeVisible (loadTracksButton);
     addAndMakeVisible (helpLabel);
     addAndMakeVisible (trackList);
 
@@ -422,6 +424,17 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     addFilesButton.setColour (juce::TextButton::textColourOffId, Theme::AddTrackButton::textColour);
     addFilesButton.setColour (juce::TextButton::textColourOnId, Theme::AddTrackButton::textColour);
     addFilesButton.onClick = [this] { chooseAndLoadFiles(); };
+
+    // Manual save/load of the current track set to/from a .tracks file -
+    // entirely separate from the host's own project save/load, which keeps
+    // working exactly as before via getStateInformation/setStateInformation.
+    saveTracksButton.setColour (juce::TextButton::buttonColourId, Theme::SecondaryButton::backgroundColour);
+    saveTracksButton.setColour (juce::TextButton::textColourOffId, Theme::SecondaryButton::textColour);
+    loadTracksButton.setColour (juce::TextButton::buttonColourId, Theme::SecondaryButton::backgroundColour);
+    loadTracksButton.setColour (juce::TextButton::textColourOffId, Theme::SecondaryButton::textColour);
+
+    saveTracksButton.onClick = [this] { saveTracksToFile(); };
+    loadTracksButton.onClick = [this] { loadTracksFromFile(); };
 
     helpLabel.setText ("Tap a waveform to jump every track to that time. Output selects each file's physical output(s).",
                         juce::dontSendNotification);
@@ -474,11 +487,15 @@ void TrackDeckAudioProcessorEditor::resized()
 
     area.removeFromTop (10);
 
-    // "Add Files" + help text are pinned to the bottom, below the
-    // scrollable track list, so they stay reachable regardless of how many
-    // tracks are loaded or how the window is resized.
+    // "Add Track" / Save / Load + help text are pinned to the bottom, below
+    // the scrollable track list, so they stay reachable regardless of how
+    // many tracks are loaded or how the window is resized.
     auto bottomRow = area.removeFromBottom (34);
     addFilesButton.setBounds (bottomRow.removeFromLeft (140));
+    bottomRow.removeFromLeft (10);
+    saveTracksButton.setBounds (bottomRow.removeFromLeft (80));
+    bottomRow.removeFromLeft (6);
+    loadTracksButton.setBounds (bottomRow.removeFromLeft (80));
     bottomRow.removeFromLeft (10);
     helpLabel.setBounds (bottomRow);
 
@@ -588,6 +605,81 @@ void TrackDeckAudioProcessorEditor::chooseAndLoadFiles()
                                                       "Sorry, only 16 tracks can be loaded.");
         }
     });
+}
+
+void TrackDeckAudioProcessorEditor::saveTracksToFile()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Save track configuration...",
+                                                         juce::File(),
+                                                         "*." + TrackDeckAudioProcessor::tracksFileExtension);
+
+    const auto flags = juce::FileBrowserComponent::saveMode
+                      | juce::FileBrowserComponent::warnAboutOverwriting;
+
+    fileChooser->launchAsync (flags, [this] (const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+
+        if (file == juce::File())
+            return; // cancelled
+
+        if (! file.hasFileExtension (TrackDeckAudioProcessor::tracksFileExtension))
+            file = file.withFileExtension (TrackDeckAudioProcessor::tracksFileExtension);
+
+        if (! processor.saveTracksToFile (file))
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                      "Couldn't save",
+                                                      "TrackDeck couldn't write to that location. Check the file "
+                                                      "isn't open elsewhere and that you have permission to write there.");
+        }
+    });
+}
+
+void TrackDeckAudioProcessorEditor::loadTracksFromFile()
+{
+    fileChooser = std::make_unique<juce::FileChooser> ("Load track configuration...",
+                                                         juce::File(),
+                                                         "*." + TrackDeckAudioProcessor::tracksFileExtension);
+
+    fileChooser->launchAsync (juce::FileBrowserComponent::openMode, [this] (const juce::FileChooser& fc)
+    {
+        auto file = fc.getResult();
+
+        if (file == juce::File())
+            return; // cancelled
+
+        if (processor.loadTracksFromFile (file))
+        {
+            refreshAllThumbnails();
+            refreshList();
+        }
+        else
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::AlertWindow::WarningIcon,
+                                                      "Couldn't load",
+                                                      "That didn't look like a valid TrackDeck .tracks file. Nothing was changed.");
+        }
+    });
+}
+
+void TrackDeckAudioProcessorEditor::refreshAllThumbnails()
+{
+    // A .tracks load can replace the entire track set in one go (unlike
+    // adding files one at a time), so re-sync every thumbnail with
+    // whatever the processor now actually has loaded.
+    for (int i = 0; i < TrackDeckAudioProcessor::maxTracks; ++i)
+    {
+        auto* thumb = getThumbnail (i);
+
+        if (thumb == nullptr)
+            continue;
+
+        if (processor.isSlotLoaded (i))
+            thumb->setSource (new juce::FileInputSource (processor.getSlotFile (i)));
+        else
+            thumb->clear();
+    }
 }
 
 void TrackDeckAudioProcessorEditor::refreshList()

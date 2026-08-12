@@ -126,6 +126,16 @@ namespace Theme
     }
 
     //==============================================================================
+    // Secondary bottom-row buttons (Save / Load .tracks file) - a more
+    // neutral look than AddTrackButton so the primary "add a track" action
+    // still stands out as the main one.
+    namespace SecondaryButton
+    {
+        inline const juce::Colour backgroundColour { 0xff26262b };
+        inline const juce::Colour textColour       { juce::Colours::white };
+    }
+
+    //==============================================================================
     // Transport controls: Play / Pause / Stop buttons and the time readout
     namespace Transport
     {

@@ -21,17 +21,20 @@
     position in the same processBlock() call, so they stay sample-accurately
     in sync regardless of how their channels are routed.
 
-    Settings persistence: loaded files, mute state, volume, and output routing
-    survive two ways. (1) The normal host mechanism - getStateInformation()/
-    setStateInformation() - saves/restores with whatever DAW project you're
-    working in, same as any other plugin. (2) Independently of that, every
-    change is also written to a small settings file on disk (see
-    getPersistedSettingsFile()), and that file is auto-loaded the moment a
-    new plugin instance is constructed - so even inserting a *fresh* instance
-    with no saved project, in a DAW that was fully closed and reopened, comes
-    back with whatever was loaded last. If the host then applies its own
-    saved project state via setStateInformation(), that (project-specific)
-    state takes over, as you'd expect.
+    Settings persistence: a brand-new plugin instance ALWAYS starts blank -
+    no tracks loaded, nothing auto-restored - whether it's opened standalone
+    or freshly inserted in a host. From there, state is handled two
+    completely separate ways:
+    (1) The normal host mechanism - getStateInformation()/
+    setStateInformation() - saves/restores loaded files, mute, volume, and
+    routing along with whatever DAW project you're working in, exactly like
+    any other plugin. This is unaffected by (2) below.
+    (2) Manually, on request: saveTracksToFile()/loadTracksFromFile() write/
+    read the same information as a human-readable YAML ".tracks" file
+    anywhere on disk, so a track setup can be shared between projects, or
+    kept as a reusable "cue sheet" independent of any DAW project. Nothing
+    is ever written to disk automatically - this only happens when the user
+    explicitly saves or loads a file from the UI.
 */
 class TrackDeckAudioProcessor : public juce::AudioProcessor
 {
@@ -65,6 +68,27 @@ public:
 
     void getStateInformation (juce::MemoryBlock& destData) override;
     void setStateInformation (const void* data, int sizeInBytes) override;
+
+    //==============================================================================
+    // Manual track-configuration file (.tracks, YAML format). Entirely
+    // separate from the host state above - nothing here happens
+    // automatically, only when the user explicitly saves or loads via the
+    // UI. See the class comment.
+
+    /** Writes the current tracks (files, mute, volume, routing) to `file` as
+        YAML. Returns false if the file couldn't be written. */
+    bool saveTracksToFile (const juce::File& file) const;
+
+    /** Replaces the current tracks entirely with whatever is described in
+        `file`. Every existing slot is cleared first, so this is a full
+        replace, not a merge. Returns false if the file couldn't be read or
+        didn't parse as a valid .tracks file (in which case nothing is
+        changed). */
+    bool loadTracksFromFile (const juce::File& file);
+
+    /** The recommended file extension for manually-saved track files,
+        without the leading dot ("tracks"). */
+    static const juce::String tracksFileExtension;
 
     //==============================================================================
     // Control API used by the editor UI.
@@ -148,35 +172,32 @@ private:
     void assignDefaultOutputs (int slot);
 
     /** Builds/applies the full "loaded files + mute + routing" state as a
-        ValueTree. Shared by both the host state mechanism
-        (getStateInformation/setStateInformation) and the on-disk persisted
-        settings (savePersistedSettings/loadPersistedSettings) below, so
-        there's exactly one place that knows the on-disk/in-session format. */
+        ValueTree. Shared by the host state mechanism
+        (getStateInformation/setStateInformation) and the manual .tracks
+        file save/load (saveTracksToFile/loadTracksFromFile) below, so
+        there's exactly one place that knows the state structure. */
     juce::ValueTree buildStateTree() const;
     void applyStateTree (const juce::ValueTree& state);
 
-    /** Where the on-disk "remember settings between DAW sessions" file lives
-        (a per-user location, independent of any DAW project file). */
-    static juce::File getPersistedSettingsFile();
-
-    /** Writes the current state to getPersistedSettingsFile(). Called after
-        every change (load/remove/mute/routing) so the on-disk copy is always
-        current. Cheap and only ever called from the message thread. */
-    void savePersistedSettings() const;
+    /** Converts buildStateTree()'s ValueTree to/from the YAML text written
+        to a .tracks file. This is a small, deliberately simple YAML
+        subset covering exactly what buildStateTree() produces (a
+        top-level "tracks" block sequence of flat string/bool/number
+        mappings) - not a general-purpose YAML parser. */
+    juce::String stateTreeToYaml (const juce::ValueTree& state) const;
+    juce::ValueTree yamlToStateTree (const juce::String& yamlText) const;
 
     /** Tells the host that the plugin's non-parameter state changed (a file
         was loaded/removed/muted, or routing changed), via
         AudioProcessor::updateHostDisplay(). This is what makes compliant
         hosts show their "project needs saving" indicator - none of our
         state is exposed as an automatable APVTS parameter, so without this
-        call the host has no way to know anything changed. Called alongside
-        savePersistedSettings() after every mutating action. */
+        call the host has no way to know anything changed. Called after
+        every mutating action, including a manual .tracks load (since that
+        changes the plugin's state just as much as loading a file by hand
+        does - the host project itself still needs a separate save if you
+        want the new tracks to survive via the host's own mechanism). */
     void notifyHostOfStateChange();
-
-    /** Loads getPersistedSettingsFile() if it exists. Called once from the
-        constructor so a freshly-created instance starts with whatever was
-        loaded last, even with no DAW project involved at all. */
-    void loadPersistedSettings();
 
     juce::OwnedArray<FilePlayer> players;
 

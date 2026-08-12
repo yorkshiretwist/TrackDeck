@@ -66,18 +66,18 @@ jobs:
         uses: actions/checkout@v2
         with:
           repository: juce-framework/JUCE
-          path: ${{runner.workspace}}/trackdeck/JUCE
+          path: ${{runner.workspace}}/TrackDeck/JUCE
 
       - name: "Create Build Environment"
-        working-directory: ${{runner.workspace}}/trackdeck
+        working-directory: ${{runner.workspace}}/TrackDeck
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} ${{ matrix.extra-flags }}
 
       - name: "Build"
-        working-directory: ${{runner.workspace}}/trackdeck
+        working-directory: ${{runner.workspace}}/TrackDeck
         run: cmake --build build --config Release
       
       - name: Set version and additional env vars
-        working-directory: ${{runner.workspace}}/trackdeck
+        working-directory: ${{runner.workspace}}/TrackDeck
         run: |
           VERSION=$(sed -n 's/.*project(TrackDeck VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
           echo "VERSION=$VERSION" >> $GITHUB_ENV

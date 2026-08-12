@@ -1,22 +1,28 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(TrackDeck VERSION 0.1.5)
+project(TrackDeck VERSION 0.2.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---------------------------------------------------------------------------
-# Optional ASIO support (Windows only, Standalone build only — see the
-# README's "ASIO support on Windows" section for full setup instructions).
-# VST3 hosts pick their own audio driver independently of this plugin, so
-# this only matters if you run the Standalone app directly and want to
-# select an ASIO device from its own audio settings dialog.
+# ASIO support (Windows only, Standalone build only — see developers.md's
+# "ASIO support on Windows" section for full setup instructions).
+#
+# If you're building the Standalone app on Windows, enabling this is
+# effectively required for reliable, low-latency audio device access - the
+# default DirectSound/WASAPI path is fine for a quick test but not what you
+# want for actual use. If you only build the VST3 to use inside a DAW, you
+# can skip this entirely: the host manages its own audio driver and this
+# setting has no effect on the VST3 build at all.
 #
 # Steinberg's ASIO SDK license forbids redistributing the SDK itself, so it
 # is NOT included in this repository — download it yourself and point CMake
-# at the extracted folder via TRACKDECK_ASIO_SDK_PATH.
+# at the extracted folder via TRACKDECK_ASIO_SDK_PATH. This defaults to OFF
+# so a first-time `cmake -B build` works out of the box without requiring
+# the SDK; turn it on explicitly once you've downloaded it (see below).
 # ---------------------------------------------------------------------------
-option(TRACKDECK_ENABLE_ASIO "Enable ASIO audio device support in the Standalone build (Windows only, requires the ASIO SDK)" OFF)
+option(TRACKDECK_ENABLE_ASIO "Enable ASIO audio device support in the Standalone build (Windows only, requires the ASIO SDK - see developers.md)" OFF)
 set(TRACKDECK_ASIO_SDK_PATH "" CACHE PATH "Path to the extracted Steinberg ASIO SDK (the folder that directly contains 'common', 'host', 'driver', ...)")
 
 # ---------------------------------------------------------------------------
@@ -98,7 +104,7 @@ if (TRACKDECK_ENABLE_ASIO)
             "TRACKDECK_ENABLE_ASIO is ON but TRACKDECK_ASIO_SDK_PATH is not set. "
             "Download the ASIO SDK from Steinberg and pass its path, e.g.\n"
             "  cmake -B build -DTRACKDECK_ENABLE_ASIO=ON -DTRACKDECK_ASIO_SDK_PATH=\"C:/SDKs/ASIOSDK2.3.3\"\n"
-            "See the README's \"ASIO support on Windows\" section for details.")
+            "See developers.md's \"ASIO support on Windows\" section for details.")
     elseif (NOT EXISTS "${TRACKDECK_ASIO_SDK_PATH}/common/iasiodrv.h")
         message(FATAL_ERROR
             "TRACKDECK_ASIO_SDK_PATH (\"${TRACKDECK_ASIO_SDK_PATH}\") doesn't look like a valid "

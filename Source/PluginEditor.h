@@ -99,6 +99,9 @@ private:
     //==============================================================================
     void timerCallback() override;
     void chooseAndLoadFiles();
+    void saveTracksToFile();
+    void loadTracksFromFile();
+    void refreshAllThumbnails(); // re-syncs every AudioThumbnail with the processor's current slots - used after a full .tracks load
     void refreshList();
     void updateTransportButtonStates();
     juce::AudioThumbnail* getThumbnail (int slot);
@@ -112,6 +115,12 @@ private:
 
     juce::Label positionLabel;
     juce::TextButton addFilesButton { "+ Add Track" };
+
+    // Manual save/load of the current track set to/from a .tracks (YAML)
+    // file on disk - entirely separate from the host's own project save.
+    juce::TextButton saveTracksButton { "Save" };
+    juce::TextButton loadTracksButton { "Load" };
+
     juce::Label helpLabel;
     juce::ListBox trackList { "Tracks", this };
 

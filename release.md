@@ -1,11 +1,10 @@
-# TrackDeck 0.1.5
+# TrackDeck 0.2.1
 
 Thanks for downloading TrackDeck! Grab the file that matches your operating system and plugin format below, then follow the install steps for that format.
 
 # What's changed in this version
 
-- Fixed the release files so that zip files contain the expected contents ready for installation
-- Added this file for release notes
+- Added the ability to save and load .tracks files, a simple YAML format containing configuration for the player
 
 # Downloading and installing the plugin
 

@@ -164,15 +164,18 @@ jobs:
             find "$name" -type f \( -name "*.exe" -o -path "*Contents/MacOS/*" -o -perm -u+x \) -exec chmod +x {} \; 2>/dev/null || true
 
             case "$name" in
-              *-VST3)             bundle_name="TrackDeck.vst3" ;;
-              *-AU)                bundle_name="TrackDeck.component" ;;
-              macOS-*Standalone)   bundle_name="TrackDeck.app" ;;
-              *)                   bundle_name="" ;;
+              *-VST3)            bundle_name="TrackDeck.vst3" ;;
+              *-AU)               bundle_name="TrackDeck.component" ;;
+              *macOS-CLAP)        bundle_name="TrackDeck.clap" ;;
+              *macOS-Standalone)  bundle_name="TrackDeck.app" ;;
+              *)                  bundle_name="" ;;
             esac
 
             if [ -n "$bundle_name" ]; then
+              rm -rf "$bundle_name"          # in case a prior iteration left one behind
               mv "$name" "$bundle_name"
               zip -r "${name}-${{ github.ref_name }}.zip" "$bundle_name"
+              rm -rf "$bundle_name"          # don't let this leak into the next iteration
             else
               (cd "$name" && zip -r "../${name}-${{ github.ref_name }}.zip" .)
             fi

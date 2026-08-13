@@ -21,7 +21,20 @@
         automatically when the file is loaded.
       - Each row has a volume slider spanning the row's full right-hand
         column width, with the mute/output/delete controls below it.
-*/
+
+    High/low-DPI handling: every size in this class and in Theme.h is a
+    DPI-independent "logical pixel" value (the same units JUCE's own Font
+    and Component sizing use everywhere) - never a raw physical pixel count
+    read from the OS or a display. JUCE maps logical to physical pixels
+    per-monitor automatically (via an AffineTransform scale applied to the
+    whole component tree), so the plugin's on-screen *size* stays visually
+    consistent whether it's opened on a 100% or a 200%-scaled display, and
+    when its window is dragged between monitors with different scaling.
+    Nothing here is bitmap/raster-based either (no image assets anywhere -
+    every icon is a vector juce::Path, every label a real drawn Font), so
+    there's nothing that could look pixelated or blurry at any scale factor.
+    setScaleFactor() below is a small defensive hook for host-driven DPI
+    change notifications; see its own comment for details. */
 class TrackDeckAudioProcessorEditor : public juce::AudioProcessorEditor,
                                         public juce::ListBoxModel,
                                         private juce::Timer
@@ -32,6 +45,17 @@ public:
 
     void paint (juce::Graphics&) override;
     void resized() override;
+
+    /** Called by the host (VST3/AAX) when it reports a new content scale
+        factor - e.g. the plugin window moved to a monitor with different
+        DPI, or was opened on one with a non-100% scale. JUCE's base
+        implementation already does the actual work (applies an
+        AffineTransform::scale() to the whole editor), so this override
+        exists purely as a defensive hook: it forces a fresh resized() +
+        repaint() afterwards, in case anything ever ends up depending on
+        cached pixel measurements. Nothing here currently does, but this
+        keeps that guaranteed rather than assumed as the UI grows. */
+    void setScaleFactor (float newScale) override;
 
     // juce::ListBoxModel
     int getNumRows() override;

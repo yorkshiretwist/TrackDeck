@@ -1,10 +1,10 @@
-# TrackDeck 0.2.1
+# TrackDeck 0.2.2
 
 Thanks for downloading TrackDeck! Grab the file that matches your operating system and plugin format below, then follow the install steps for that format.
 
 # What's changed in this version
 
-- Added the ability to save and load .tracks files, a simple YAML format containing configuration for the player
+- Handle high and low DPI screens better, even when dragging the plugin window between them
 
 # Downloading and installing the plugin
 

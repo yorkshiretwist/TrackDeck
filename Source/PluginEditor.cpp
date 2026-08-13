@@ -448,6 +448,9 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     updateTransportButtonStates();
     refreshList(); // build the initial visible-track list (only loaded slots, if any were restored)
 
+    // All sizes below (and everywhere else in this class/Theme.h) are
+    // logical pixels - JUCE scales these to physical pixels per-monitor
+    // automatically, so this doesn't need to change based on DPI.
     setResizable (true, true);
     setResizeLimits (560, 400, 3000, 2000);
     setSize (760, 600);
@@ -501,6 +504,18 @@ void TrackDeckAudioProcessorEditor::resized()
 
     area.removeFromBottom (8);
     trackList.setBounds (area);
+}
+
+void TrackDeckAudioProcessorEditor::setScaleFactor (float newScale)
+{
+    // The base class does the actual work: applies an AffineTransform that
+    // scales the whole editor to match the host/OS-reported content scale,
+    // which is what keeps the plugin's on-screen size consistent across
+    // different-DPI monitors. See the class comment for the full picture.
+    AudioProcessorEditor::setScaleFactor (newScale);
+
+    resized();
+    repaint();
 }
 
 int TrackDeckAudioProcessorEditor::getNumRows()

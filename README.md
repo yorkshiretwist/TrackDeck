@@ -39,6 +39,10 @@ together, every time.
   another one, or shared with someone else. This is separate from (and
   doesn't interfere with) your DAW's own project save.
 - **Resizable window** that adapts to however much space you give it.
+- **Looks right on any screen.** Whether you're on a laptop, a high-resolution
+  display, or moving the window between monitors with different scaling,
+  TrackDeck stays the size it's supposed to be — no shrinking, ballooning,
+  or blurry text.
 
 ## Using TrackDeck
 

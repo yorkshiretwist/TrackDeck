@@ -397,6 +397,59 @@ muted track's position keeps advancing right along with everything else),
 applies the current gain, and only *then* silences the output if the track
 is muted — so unmuting a track never leaves it out of sync with the others.
 
+## High/low-DPI and multi-monitor support
+
+TrackDeck's on-screen size stays visually consistent whether it's opened on
+a standard-DPI display, a high-DPI/Retina one, or dragged between two
+monitors with different scaling — there shouldn't be a jarring jump in size
+(including font size) in any of those cases. This mostly comes from a few
+deliberate choices rather than one single mechanism:
+
+- **Every size is a logical pixel, never a physical one.** `Theme.h`,
+  `PluginEditor.cpp`'s `resized()`, and the initial `setSize (760, 600)` in
+  the constructor all use JUCE's normal DPI-independent sizing units — the
+  same units `Font` sizes and `Component` bounds always use. Nothing in this
+  codebase reads a physical pixel count or a raw DPI value from the OS and
+  multiplies a size by it; that mapping is JUCE's job, not ours.
+- **JUCE applies the actual scaling.** It maps those logical sizes to
+  physical pixels per-monitor by applying an `AffineTransform::scale()` to
+  the whole editor component tree — see `AudioProcessorEditor::setScaleFactor()`,
+  which `TrackDeckAudioProcessorEditor` overrides (in `PluginEditor.cpp`)
+  purely as a defensive hook that forces a fresh `resized()` + `repaint()`
+  after the base class applies the transform. The scaling itself needs no
+  code from us.
+- **Nothing is a bitmap.** Every icon (Play/Pause/Stop, the waveform's
+  peaks, the delete "X") is a vector `juce::Path`, and all text is drawn
+  through JUCE's real `Font`/`GlyphArrangement` — there are no raster image
+  assets anywhere in this plugin. That means there's nothing that could look
+  soft, blurry, or pixelated at a non-standard scale factor the way a fixed
+  bitmap icon set would; vector content and real text redraw crisply at
+  whatever scale is applied.
+
+### Where this is (and isn't) guaranteed
+
+- **Standalone app**: fully under JUCE's control end to end, so this all
+  works automatically — no manifest or extra CMake configuration needed.
+- **VST3 in a host**: the host is what tells the plugin its content scale
+  factor, via the standard VST3 `IPlugViewContentScaleSupport` mechanism;
+  JUCE implements the plugin side of that protocol automatically, so no
+  code here is host-specific. Every mainstream, actively-maintained host
+  (Cubase, Studio One, Reaper, Bitwig, current Ableton Live, etc.) notifies
+  plugins correctly, including when a window is dragged to a
+  different-DPI monitor. A minority of older or less-maintained hosts may
+  not send that notification on every monitor change — in that specific
+  case, Windows/macOS may bitmap-stretch the whole plugin window instead of
+  TrackDeck re-laying-out at the new scale, until the plugin window is
+  closed and reopened. That's a host-side limitation of the VST3 windowing
+  contract, not something a plugin can override — hosts, not plugins, own
+  their top-level window's DPI-awareness policy.
+- **Linux/X11** DPI detection is generally less consistent across
+  distributions/desktop environments than Windows or macOS, since JUCE has
+  to infer the display scale from X server settings that aren't always
+  configured. If you hit obviously-wrong sizing specifically on Linux,
+  that's almost always an X11/desktop-environment scaling configuration
+  issue rather than something to fix in this plugin's code.
+
 ## Track configuration files (.tracks)
 
 TrackDeck never writes anything to disk on its own. Every new instance —

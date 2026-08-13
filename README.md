@@ -1,9 +1,10 @@
 # TrackDeck
 
-TrackDeck is a VST3 plugin (and standalone app) for playing multiple audio
-files together, perfectly in sync — built for live performance, where things
-need to be big, simple, and reliable, even in a dark room with seconds to
-spare between songs.
+TrackDeck is a plugin — available as **VST3**, **AU** (macOS), and **CLAP**,
+plus a **standalone app** that needs no DAW at all — for playing multiple
+audio files together, perfectly in sync. Built for live performance, where
+things need to be big, simple, and reliable, even in a dark room with
+seconds to spare between songs.
 
 Load your backing tracks, stems, or cues. Hit play. Everything starts
 together, every time.
@@ -43,6 +44,20 @@ together, every time.
   display, or moving the window between monitors with different scaling,
   TrackDeck stays the size it's supposed to be — no shrinking, ballooning,
   or blurry text.
+
+## Plugin formats
+
+TrackDeck works exactly the same way no matter which format you use — pick
+whichever one your DAW wants:
+
+- **VST3** — works in most DAWs on Windows, macOS, and Linux. If you're not
+  sure which to pick, start here.
+- **AU (Audio Unit)** — macOS only. Use this for Logic Pro, GarageBand, or
+  any other host that expects AU rather than VST3.
+- **CLAP** — a newer, open plugin format. Use this if your DAW supports it
+  and you prefer it (Bitwig Studio, REAPER, and FL Studio are a few that do).
+- **Standalone** — runs entirely on its own, no DAW required. Handy for
+  quick testing, or as your whole setup if you don't need a DAW at all.
 
 ## Using TrackDeck
 

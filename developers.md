@@ -11,6 +11,13 @@ routable to any of them — so a stereo file can feed two separate physical
 outputs and a mono file feeds just one, all selectable and changeable from
 the UI.
 
+It builds as **VST3** (Windows/macOS/Linux), **AU** (macOS only), **CLAP**
+(Windows/macOS/Linux, via the vendored `clap-juce-extensions` library — see
+"CLAP support" below), and a **Standalone** app, all from the same
+`CMakeLists.txt` and the same source. Nothing in `Source/` is aware of which
+format it's running as; format support is entirely a build/packaging
+concern, handled in `CMakeLists.txt`.
+
 ## Feature checklist
 
 | Requirement | Where it's implemented |
@@ -65,11 +72,15 @@ the UI.
 ```
 TrackDeck/
   CMakeLists.txt
+  LICENSE
   Source/
     FilePlayer.h         # decodes + resamples one file, handles mute/position
     Theme.h               # ALL colours/fonts/spacing constants - edit this to restyle the UI
     PluginProcessor.h/.cpp
     PluginEditor.h/.cpp
+  libs/
+    clap-juce-extensions/ # git submodule - see "CLAP support" below
+  media/                  # README screenshots
   JUCE/                   # you add this (see Build steps)
 ```
 
@@ -162,6 +173,16 @@ above).
    ```
    cd TrackDeck
    ```
+   If you cloned this from git rather than extracting a zip, and
+   `libs/clap-juce-extensions` looks empty, you need to pull in its
+   submodules too (it depends on its own nested libraries for CLAP
+   support):
+   ```
+   git submodule update --init --recursive
+   ```
+   (Or clone the whole repo with `git clone --recurse-submodules ...` in
+   the first place, which pulls everything in one step. A zip download
+   normally already has these files included, so this step is git-only.)
 2. Clone JUCE into a subfolder called `JUCE` right next to `CMakeLists.txt`.
    This downloads the JUCE framework source code — nothing needs to be
    "installed" separately:
@@ -191,24 +212,40 @@ above).
    files are recompiled.
 5. If the build succeeds, you'll find the finished files here:
    - **VST3 plugin**: `build/TrackDeck_artefacts/Release/VST3/TrackDeck.vst3`
+   - **AU plugin** (macOS only): `build/TrackDeck_artefacts/Release/AU/TrackDeck.component`
+   - **CLAP plugin**: `build/TrackDeck_artefacts/Release/CLAP/TrackDeck.clap`
    - **Standalone app** (a self-contained window, no DAW needed):
      `build/TrackDeck_artefacts/Release/Standalone/TrackDeck.exe` (Windows) /
      `.app` (macOS) / no extension (Linux)
 
-### Installing the VST3 so your DAW can find it
+   AU only gets built on macOS — `juce_add_plugin`'s `FORMATS AU VST3
+   Standalone` in `CMakeLists.txt` automatically skips it on Windows/Linux,
+   so you won't see an `AU` folder there, and that's expected rather than
+   a build failure.
 
-Copy (or symlink) the whole `TrackDeck.vst3` **bundle/folder**
-(don't cherry-pick files out of it) into your system's VST3 folder:
+### Installing VST3 / AU / CLAP so your DAW can find them
 
-| OS | VST3 folder |
-|---|---|
-| Windows | `C:\Program Files\Common Files\VST3` |
-| macOS | `~/Library/Audio/Plug-Ins/VST3` (per-user) or `/Library/Audio/Plug-Ins/VST3` (all users) |
-| Linux | `~/.vst3` (per-user) or `/usr/lib/vst3` (all users) |
+Copy (or symlink) the whole plugin **bundle/folder** (don't cherry-pick
+files out of it) into the matching system folder for that format:
+
+| Format | OS | Folder |
+|---|---|---|
+| VST3 | Windows | `C:\Program Files\Common Files\VST3` |
+| VST3 | macOS | `~/Library/Audio/Plug-Ins/VST3` (per-user) or `/Library/Audio/Plug-Ins/VST3` (all users) |
+| VST3 | Linux | `~/.vst3` (per-user) or `/usr/lib/vst3` (all users) |
+| AU | macOS | `~/Library/Audio/Plug-Ins/Components` (per-user) or `/Library/Audio/Plug-Ins/Components` (all users) |
+| CLAP | Windows | `C:\Program Files\Common Files\CLAP` |
+| CLAP | macOS | `~/Library/Audio/Plug-Ins/CLAP` (per-user) or `/Library/Audio/Plug-Ins/CLAP` (all users) |
+| CLAP | Linux | `~/.clap` (per-user) or `/usr/lib/clap` (all users) |
 
 Then open your DAW and trigger a plugin rescan (most DAWs do this
 automatically on startup, or have a "Rescan plugins" option in preferences).
-It should show up as **"TrackDeck"**.
+It should show up as **"TrackDeck"** regardless of format.
+
+AU has one extra wrinkle: macOS caches AU plugin info more aggressively than
+VST3/CLAP, so if a rebuilt AU doesn't show up (or a host still shows an old
+version), quit the DAW, run `killall -9 AudioComponentRegistrar` in Terminal,
+then relaunch the DAW to force it to rescan.
 
 ### Quickest way to test it: the Standalone app
 
@@ -225,6 +262,59 @@ You don't need to repeat the JUCE clone. Just re-run the build step:
 ```
 cmake --build build --config Release
 ```
+
+## CLAP support
+
+CLAP support comes from [clap-juce-extensions](https://github.com/free-audio/clap-juce-extensions),
+vendored as a git submodule in `libs/clap-juce-extensions` (which itself
+pulls in `clap` and `clap-helpers` as its own nested submodules — see "Build
+steps" above for the `git submodule update --init --recursive` step if
+you're missing these). It's the standard, widely-used way to add CLAP output
+to an existing JUCE plugin without changing any of the plugin's own source
+code.
+
+### How it's wired into CMakeLists.txt
+
+Two things make the CLAP build work, both in `CMakeLists.txt`:
+
+```cmake
+add_subdirectory(JUCE)
+add_subdirectory(libs/clap-juce-extensions EXCLUDE_FROM_ALL)
+```
+pulls in the library's own CMake build (as a dependency-only subdirectory —
+`EXCLUDE_FROM_ALL` keeps it out of the default "build everything" target set
+so it doesn't add its own unrelated build products), and, right after the
+`juce_add_plugin(TrackDeck ...)` block:
+
+```cmake
+clap_juce_extensions_plugin(
+    TARGET                      TrackDeck
+    CLAP_ID                     "com.christaylor.trackdeck"
+    CLAP_FEATURES               audio-effect utility
+    CLAP_DESCRIPTION            "A simple audio plugin for playing multiple audio files, for example synced backing track stems"
+)
+```
+adds a CLAP target that wraps the *same* `TrackDeckAudioProcessor`/
+`TrackDeckAudioProcessorEditor` used by every other format — this is a
+build-time addition only, not a code change, which is why `Source/` has no
+CLAP-specific code anywhere. `CLAP_ID` should stay a reverse-DNS-style
+identifier unique to this plugin if you fork/rename the project.
+
+### If you don't want CLAP support
+
+Since it's a whole extra vendored dependency, you may not want it in a
+fork/derivative that doesn't need CLAP. Remove the `add_subdirectory(...)`
+and `clap_juce_extensions_plugin(...)` block from `CMakeLists.txt`, drop
+`libs/clap-juce-extensions` from the repo, and change `FORMATS AU VST3
+Standalone` back to just the formats you want. VST3, AU, and Standalone have
+no dependency on CLAP or on `libs/` at all.
+
+### Testing a CLAP build
+
+Popular hosts with CLAP support at the time of writing include Bitwig
+Studio, REAPER, and FL Studio — any of them will do for a quick check. There
+isn't a CLAP standalone runner analogous to JUCE's own Standalone app, so
+testing a CLAP build specifically means loading it in one of these.
 
 ## ASIO support on Windows
 
@@ -311,6 +401,12 @@ builds without ASIO.
   skipped or the `git clone` step failed. Make sure there's a `JUCE` folder
   directly inside `TrackDeck/` containing JUCE's own
   `CMakeLists.txt`.
+- **`add_subdirectory(libs/clap-juce-extensions ...)` fails, or the folder
+  looks empty/incomplete** — if you cloned this repo with plain `git clone`
+  (not `--recurse-submodules`), the submodule contents won't have been
+  pulled in. Run `git submodule update --init --recursive` from the
+  `TrackDeck` folder to fetch `clap-juce-extensions` and its own nested
+  `clap`/`clap-helpers` submodules, then reconfigure.
 - **Windows: "cl.exe not found" or similar compiler errors** — you're using a
   plain Command Prompt/PowerShell instead of the "Developer Command Prompt
   for VS 2022" / "x64 Native Tools Command Prompt for VS 2022", or the
@@ -318,11 +414,14 @@ builds without ASIO.
 - **Linux: CMake errors about missing X11/ALSA/WebKit, etc.** — you're
   missing one of the `apt install` packages listed above; the error message
   usually names the missing library, which maps closely to the package name.
-- **DAW doesn't see the plugin after copying the `.vst3`** — double-check you
-  copied the whole `.vst3` bundle (it's actually a folder on Windows/Linux,
-  and a macOS "package" that looks like a single file in Finder but is really
-  a folder), that it's in the right VST3 folder for your OS, and that you
-  triggered a rescan in the DAW's plugin manager.
+- **DAW doesn't see the plugin after copying the `.vst3`/`.component`/`.clap`** —
+  double-check you copied the whole bundle (each is actually a folder on
+  Windows/Linux, and a macOS "package" that looks like a single file in
+  Finder but is really a folder), that it's in the right folder for that
+  format and OS, and that you triggered a rescan in the DAW's plugin
+  manager. For AU specifically, also try the `killall -9
+  AudioComponentRegistrar` step mentioned above — macOS's AU cache is
+  usually the culprit if VST3/CLAP show up fine but AU doesn't.
 - **MP3 files won't load** — confirm the build picked up
   `JUCE_USE_MP3AUDIOFORMAT=1` (it's set in `CMakeLists.txt`'s
   `target_compile_definitions`); if you changed that file, delete the

@@ -166,4 +166,12 @@ namespace Theme
         inline const juce::Colour textColour { juce::Colours::lightgrey };
         constexpr float fontSizePx = 13.0f;
     }
+
+    //==============================================================================
+    // Version number in the bottom bar
+    namespace VersionLabel
+    {
+        inline const juce::Colour textColour { juce::Colours::grey };
+        constexpr float fontSizePx = 11.0f;
+    }
 }

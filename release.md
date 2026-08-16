@@ -1,10 +1,11 @@
-# TrackDeck 0.2.2
+# TrackDeck 0.2.3
 
 Thanks for downloading TrackDeck! Grab the file that matches your operating system and plugin format below, then follow the install steps for that format.
 
 # What's changed in this version
 
-- Handle high and low DPI screens better, even when dragging the plugin window between them
+- Add version number to bottom right of screen
+- Auto stop and reset at end of all tracks
 
 # Downloading and installing the plugin
 

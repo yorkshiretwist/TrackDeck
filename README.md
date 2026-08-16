@@ -75,6 +75,9 @@ A couple of things worth knowing about the transport:
 - **Pause** stops playback but keeps your place — press Play again to pick up
   right where you left off.
 - **Stop** stops playback and resets everything back to the beginning.
+- When every track has finished playing, TrackDeck stops on its own and
+  resets to the beginning — ready to go again without you having to hit
+  Stop yourself.
 
 ### Saving and loading your setup
 

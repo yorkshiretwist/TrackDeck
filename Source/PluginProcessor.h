@@ -19,7 +19,12 @@
 
     Pressing "play" starts every loaded file from the same shared transport
     position in the same processBlock() call, so they stay sample-accurately
-    in sync regardless of how their channels are routed.
+    in sync regardless of how their channels are routed. Playback stops
+    itself automatically (as if Stop had been pressed - position rewound to
+    zero) once the shared position passes the end of the longest loaded
+    file, rather than continuing to "play" silently forever; see
+    recomputeLongestLoadedLength() and the auto-stop check in
+    processBlock().
 
     Settings persistence: a brand-new plugin instance ALWAYS starts blank -
     no tracks loaded, nothing auto-restored - whether it's opened standalone
@@ -199,10 +204,29 @@ private:
         want the new tracks to survive via the host's own mechanism). */
     void notifyHostOfStateChange();
 
+    /** Recomputes longestLoadedLengthSamples from the currently loaded
+        files' lengths (in samples, at currentSampleRate) and stores it
+        atomically. Called from the message thread whenever which files are
+        loaded changes (load/remove/bulk state apply), and from
+        prepareToPlay() when the sample rate itself changes. processBlock()
+        only ever reads the cached atomic value - it never touches
+        FilePlayer's own (non-atomic, lock-guarded) length fields directly,
+        so there's no audio-thread/message-thread race on this. */
+    void recomputeLongestLoadedLength();
+
     juce::OwnedArray<FilePlayer> players;
 
     std::atomic<bool> playing { false };
     std::atomic<juce::int64> playbackPositionSamples { 0 };
+
+    /** The longest currently-loaded file's length, in samples at
+        currentSampleRate - i.e. how far playbackPositionSamples can go
+        before every loaded track has finished. processBlock() uses this to
+        stop playback automatically once every track has reached its end,
+        instead of letting the transport run on indefinitely past it. 0
+        means "nothing loaded" (or not yet computed), in which case
+        processBlock() does not auto-stop. */
+    std::atomic<juce::int64> longestLoadedLengthSamples { 0 };
 
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;

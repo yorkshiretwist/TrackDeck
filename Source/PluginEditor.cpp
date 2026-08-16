@@ -406,6 +406,7 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     addAndMakeVisible (saveTracksButton);
     addAndMakeVisible (loadTracksButton);
     addAndMakeVisible (helpLabel);
+    addAndMakeVisible (versionLabel);
     addAndMakeVisible (trackList);
 
     playButton.setShape (makePlayShape(), true, true, false);
@@ -441,6 +442,14 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     helpLabel.setFont (juce::Font (Theme::HelpText::fontSizePx));
     helpLabel.setColour (juce::Label::textColourId, Theme::HelpText::textColour);
     helpLabel.setJustificationType (juce::Justification::centredLeft);
+
+    // JucePlugin_VersionString comes from the CMake project() VERSION (see
+    // CMakeLists.txt) via JUCE's generated header, so this always matches
+    // the actual build - nothing to keep in sync by hand.
+    versionLabel.setText ("v" + juce::String (JucePlugin_VersionString), juce::dontSendNotification);
+    versionLabel.setFont (juce::Font (Theme::VersionLabel::fontSizePx));
+    versionLabel.setColour (juce::Label::textColourId, Theme::VersionLabel::textColour);
+    versionLabel.setJustificationType (juce::Justification::centredRight);
 
     trackList.setRowHeight (Theme::TrackList::rowHeightPx);
     trackList.setColour (juce::ListBox::backgroundColourId, Theme::TrackList::backgroundColour);
@@ -492,7 +501,8 @@ void TrackDeckAudioProcessorEditor::resized()
 
     // "Add Track" / Save / Load + help text are pinned to the bottom, below
     // the scrollable track list, so they stay reachable regardless of how
-    // many tracks are loaded or how the window is resized.
+    // many tracks are loaded or how the window is resized. The version
+    // number sits at the far right, out of the way of everything else.
     auto bottomRow = area.removeFromBottom (34);
     addFilesButton.setBounds (bottomRow.removeFromLeft (140));
     bottomRow.removeFromLeft (10);
@@ -500,6 +510,8 @@ void TrackDeckAudioProcessorEditor::resized()
     bottomRow.removeFromLeft (6);
     loadTracksButton.setBounds (bottomRow.removeFromLeft (80));
     bottomRow.removeFromLeft (10);
+    versionLabel.setBounds (bottomRow.removeFromRight (60));
+    bottomRow.removeFromRight (10);
     helpLabel.setBounds (bottomRow);
 
     area.removeFromBottom (8);
@@ -558,8 +570,22 @@ void TrackDeckAudioProcessorEditor::timerCallback()
 {
     positionLabel.setText (formatTime (processor.getPlaybackPositionSeconds()), juce::dontSendNotification);
 
-    if (processor.isPlaying())
-        trackList.repaint(); // keep the shared playhead moving across all lanes
+    // The processor can now stop playback on its own (auto-stop once every
+    // loaded track reaches its end), with no button click to hang a UI
+    // refresh off of - so the transport buttons' visual state has to be
+    // polled here rather than only updated from onClick handlers.
+    updateTransportButtonStates();
+
+    const bool nowPlaying = processor.isPlaying();
+
+    // Keep the shared playhead moving every tick while playing, AND catch
+    // one final repaint on the exact tick playback just stopped (manual
+    // Stop, or auto-stop) so the playhead visibly snaps back to zero
+    // immediately instead of lagging until something else repaints it.
+    if (nowPlaying || wasPlayingLastTick)
+        trackList.repaint();
+
+    wasPlayingLastTick = nowPlaying;
 }
 
 void TrackDeckAudioProcessorEditor::updateTransportButtonStates()

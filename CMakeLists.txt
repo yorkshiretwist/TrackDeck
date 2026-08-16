@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(TrackDeck VERSION 0.2.2)
+project(TrackDeck VERSION 0.2.3)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -146,6 +146,7 @@ private:
     juce::TextButton loadTracksButton { "Load" };
 
     juce::Label helpLabel;
+    juce::Label versionLabel; // small "vX.Y.Z" text in the bottom bar, next to the help text
     juce::ListBox trackList { "Tracks", this };
 
     // Which processor slots are currently loaded, in slot order — rebuilt
@@ -157,6 +158,12 @@ private:
     juce::OwnedArray<juce::AudioThumbnail> thumbnails;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
+
+    // Tracked so timerCallback() can tell "still playing" apart from "just
+    // stopped this tick" (including an automatic stop-at-end-of-tracks,
+    // which happens on the audio thread with no button click to hook a
+    // repaint off of) - see timerCallback()'s comment for why this matters.
+    bool wasPlayingLastTick = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TrackDeckAudioProcessorEditor)
 };

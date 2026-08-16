@@ -42,6 +42,7 @@ concern, handled in `CMakeLists.txt`.
 - **Play** — starts every loaded file from the current shared position.
 - **Pause** — stops audio but leaves the position where it was; Play resumes from there.
 - **Stop** — stops audio and rewinds the shared position to `00:00.0`.
+- **Auto-stop at the end** — once every loaded track has finished playing (the shared position passes the longest loaded file's length), playback stops itself automatically, exactly like pressing Stop — position rewound to `00:00.0`, ready to play again from the top. Without this, the transport would stay "playing" indefinitely with nothing audible coming out. Implemented in `TrackDeckAudioProcessor::processBlock()`/`recomputeLongestLoadedLength()`; see the class comment in `PluginProcessor.h` for the full mechanism.
 - **Seeking** (tap/click/drag on any track's waveform) works at any time, including mid-playback, and immediately repositions all tracks together.
 
 ### Output routing
@@ -91,11 +92,17 @@ Every colour, font size, and layout spacing constant the editor uses lives in
 (`Theme::Window`, `Theme::TrackList`, `Theme::TrackRow`, `Theme::Waveform`,
 `Theme::VolumeSlider`, `Theme::MuteButton`, `Theme::DeleteButton`,
 `Theme::ChannelDropdown`, `Theme::AddTrackButton`, `Theme::Transport`,
-`Theme::HelpText`). To change how the plugin looks — recolour a button,
-adjust the gap between tracks, swap the waveform colour — edit the relevant
-value in that one file and rebuild; you never need to touch
+`Theme::HelpText`, `Theme::VersionLabel`). To change how the plugin looks —
+recolour a button, adjust the gap between tracks, swap the waveform colour —
+edit the relevant value in that one file and rebuild; you never need to touch
 `PluginEditor.cpp` for a pure styling change. See the comments at the top of
 `Theme.h` for the colour-format convention used.
+
+The small version number shown in the bottom bar isn't hardcoded anywhere in
+`Source/` — it's read from JUCE's generated `JucePlugin_VersionString` macro,
+which comes from `project(TrackDeck VERSION ...)` at the top of
+`CMakeLists.txt`. Bump the version there and the UI picks it up automatically
+on the next build; there's nothing else to keep in sync by hand.
 
 ## Prerequisites
 

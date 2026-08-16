@@ -84,6 +84,8 @@ void TrackDeckAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBl
 
     for (auto* p : players)
         p->prepare (sampleRate, samplesPerBlock);
+
+    recomputeLongestLoadedLength(); // the samples-per-second conversion depends on currentSampleRate, just set above
 }
 
 void TrackDeckAudioProcessor::releaseResources()
@@ -142,6 +144,16 @@ void TrackDeckAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, ju
         }
 
         playbackPositionSamples += numSamples;
+
+        // Stop automatically once every loaded track has reached its end,
+        // instead of letting the transport carry on indefinitely with
+        // nothing but silence coming out. Mirrors the Stop button exactly
+        // (position rewound to zero) rather than Pause, so the deck is
+        // immediately ready to play again from the top.
+        const juce::int64 totalLength = longestLoadedLengthSamples.load();
+
+        if (totalLength > 0 && playbackPositionSamples.load() >= totalLength)
+            stopPlayback();
     }
 }
 
@@ -229,6 +241,7 @@ bool TrackDeckAudioProcessor::loadFileIntoSlot (int slot, const juce::File& file
         return false;
 
     assignDefaultOutputs (slot);
+    recomputeLongestLoadedLength();
     notifyHostOfStateChange();
     return true;
 }
@@ -238,6 +251,7 @@ void TrackDeckAudioProcessor::removeSlot (int slot)
     if (juce::isPositiveAndBelow (slot, players.size()))
     {
         players[slot]->clear();
+        recomputeLongestLoadedLength();
         notifyHostOfStateChange();
     }
 }
@@ -352,6 +366,16 @@ double TrackDeckAudioProcessor::getLongestLoadedLengthSeconds() const
             longest = juce::jmax (longest, p->getLengthInSeconds());
 
     return longest;
+}
+
+void TrackDeckAudioProcessor::recomputeLongestLoadedLength()
+{
+    // Always called from the message thread (load/remove/state-apply, or
+    // prepareToPlay()), so it's fine to read straight from getLongestLoadedLengthSeconds()
+    // here - the audio thread never touches FilePlayer's own fields, only
+    // the cached atomic this writes.
+    const double longestSeconds = getLongestLoadedLengthSeconds();
+    longestLoadedLengthSamples.store ((juce::int64) (longestSeconds * currentSampleRate));
 }
 
 //==============================================================================
@@ -496,6 +520,8 @@ void TrackDeckAudioProcessor::applyStateTree (const juce::ValueTree& state)
                 assignDefaultOutputs (index);
         }
     }
+
+    recomputeLongestLoadedLength();
 }
 
 //==============================================================================

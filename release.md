@@ -1,9 +1,13 @@
-# TrackDeck 0.2.3
+# TrackDeck 0.3.0
 
 Thanks for downloading TrackDeck! Grab the file that matches your operating system and plugin format below, then follow the install steps for that format.
 
 # What's changed in this version
 
+- Control Play, Pause, Stop and Play/Pause from a MIDI footswitch or controller. Each command fires on an exact MIDI CC number and value (defaults: CC 80, 81, 82 and 83, value 127), on any MIDI channel or one you choose
+- New MIDI button with MIDI learn: click a command, then press the control on your hardware to assign it, or type the CC value and pick the channel
+- MIDI settings are saved in `.tracks` files and in your DAW project
+- Choose how many audio outputs the plugin offers
 - Add version number to bottom right of screen
 - Auto stop and reset at end of all tracks
 

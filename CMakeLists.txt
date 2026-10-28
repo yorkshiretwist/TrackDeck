@@ -46,7 +46,7 @@ juce_add_plugin(TrackDeck
     FORMATS                     AU VST3 Standalone
     PRODUCT_NAME                "TrackDeck"
     IS_SYNTH                    FALSE
-    NEEDS_MIDI_INPUT            FALSE
+    NEEDS_MIDI_INPUT            TRUE
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE

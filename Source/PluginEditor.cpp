@@ -55,6 +55,239 @@ namespace
 
         return juce::String::formatted ("%02d:%02d.%d", mins, secs, tenth);
     }
+
+    //==============================================================================
+    /** Content of the MIDI callout: one row per transport command showing its
+        CC, with a button that arms MIDI learn for it and one that clears it.
+        Polls the processor on a timer, since a CC can be learned (or the
+        mapping changed by loading a .tracks file) at any moment on a thread
+        other than the UI's. */
+    class MidiPanel : public juce::Component,
+                       private juce::Timer
+    {
+    public:
+        explicit MidiPanel (TrackDeckAudioProcessor& p) : processor (p)
+        {
+            for (int i = 0; i < TrackDeckAudioProcessor::numMidiCommands; ++i)
+            {
+                auto& row = rows[(size_t) i];
+                const auto command = (TrackDeckAudioProcessor::MidiCommand) i;
+
+                row.name.setText (TrackDeckAudioProcessor::getMidiCommandName (command), juce::dontSendNotification);
+                row.name.setColour (juce::Label::textColourId, juce::Colours::white);
+
+                row.learn.setColour (juce::TextButton::buttonColourId, Theme::SecondaryButton::backgroundColour);
+                row.learn.setColour (juce::TextButton::textColourOffId, Theme::SecondaryButton::textColour);
+                row.learn.onClick = [this, command]
+                {
+                    if (processor.getMidiLearnTarget() == (int) command)
+                        processor.cancelMidiLearn();
+                    else
+                        processor.beginMidiLearn (command);
+
+                    refresh();
+                };
+
+                // The CC value this command waits for (0-127), typed in directly.
+                row.value.setEditable (true);
+                row.value.setJustificationType (juce::Justification::centred);
+                row.value.setColour (juce::Label::textColourId, juce::Colours::white);
+                row.value.setColour (juce::Label::backgroundColourId, Theme::TrackRow::backgroundColour);
+                row.value.setColour (juce::Label::outlineColourId, Theme::ChannelDropdown::borderColour);
+                row.value.onEditorShow = [&row]
+                {
+                    if (auto* editor = row.value.getCurrentTextEditor())
+                        editor->setInputRestrictions (3, "0123456789");
+                };
+                row.value.onTextChange = [this, command, &row]
+                {
+                    // An emptied field reverts to the current value rather than meaning 0.
+                    if (row.value.getText().isNotEmpty())
+                        processor.setMidiValue (command, row.value.getText().getIntValue());
+
+                    mappingChanged();
+                };
+
+                row.clear.setColour (juce::TextButton::buttonColourId, Theme::SecondaryButton::backgroundColour);
+                row.clear.setColour (juce::TextButton::textColourOffId, Theme::SecondaryButton::textColour);
+                row.clear.onClick = [this, command]
+                {
+                    processor.cancelMidiLearn();
+                    processor.setMidiCc (command, TrackDeckAudioProcessor::midiCcUnassigned);
+                    mappingChanged();
+                };
+
+                addAndMakeVisible (row.name);
+                addAndMakeVisible (row.learn);
+                addAndMakeVisible (row.value);
+                addAndMakeVisible (row.clear);
+            }
+
+            for (auto* heading : { &numberHeading, &valueHeading })
+            {
+                heading->setFont (juce::Font (Theme::HelpText::fontSizePx));
+                heading->setColour (juce::Label::textColourId, Theme::HelpText::textColour);
+                heading->setJustificationType (juce::Justification::centred);
+                addAndMakeVisible (heading);
+            }
+
+            numberHeading.setText ("CC number", juce::dontSendNotification);
+            valueHeading.setText ("Value", juce::dontSendNotification);
+
+            // One MIDI channel for all four commands: "Any" (id 1) or
+            // channel 1-16 (ids 2-17).
+            channelLabel.setText ("MIDI channel", juce::dontSendNotification);
+            channelLabel.setColour (juce::Label::textColourId, juce::Colours::white);
+            channelCombo.addItem ("Any", 1);
+
+            for (int ch = 1; ch <= 16; ++ch)
+                channelCombo.addItem (juce::String (ch), ch + 1);
+
+            channelCombo.setColour (juce::ComboBox::backgroundColourId, Theme::ChannelDropdown::backgroundColour);
+            channelCombo.setColour (juce::ComboBox::outlineColourId, Theme::ChannelDropdown::borderColour);
+            channelCombo.setColour (juce::ComboBox::textColourId, Theme::ChannelDropdown::textColour);
+            channelCombo.onChange = [this]
+            {
+                processor.setMidiChannel (channelCombo.getSelectedId() - 1);
+                mappingChanged();
+            };
+
+            addAndMakeVisible (channelLabel);
+            addAndMakeVisible (channelCombo);
+
+            resetButton.setColour (juce::TextButton::buttonColourId, Theme::SecondaryButton::backgroundColour);
+            resetButton.setColour (juce::TextButton::textColourOffId, Theme::SecondaryButton::textColour);
+            resetButton.onClick = [this]
+            {
+                processor.cancelMidiLearn();
+                processor.resetMidiCcsToDefaults();
+                mappingChanged();
+            };
+
+            hint.setText ("Click a CC number, then press the button or footswitch on your controller: "
+                          "its CC number and value are both learned. A command only fires on that exact "
+                          "number and value, on the chosen MIDI channel (Any by default). Learning leaves the "
+                          "channel as it is.", juce::dontSendNotification);
+            hint.setFont (juce::Font (Theme::HelpText::fontSizePx));
+            hint.setColour (juce::Label::textColourId, Theme::HelpText::textColour);
+            hint.setJustificationType (juce::Justification::topLeft);
+
+            addAndMakeVisible (resetButton);
+            addAndMakeVisible (hint);
+
+            setSize (400, 28 + 20 + 4 * 34 + 34 + 8 + 34 + 64);
+            refresh();
+            startTimerHz (10);
+        }
+
+        ~MidiPanel() override
+        {
+            processor.cancelMidiLearn(); // closing the panel abandons an armed learn
+        }
+
+        void paint (juce::Graphics& g) override
+        {
+            g.fillAll (Theme::Window::backgroundColour);
+            g.setColour (Theme::Window::titleTextColour);
+            g.setFont (15.0f);
+            g.drawFittedText ("MIDI CC triggers", getLocalBounds().removeFromTop (28).reduced (10, 0),
+                               juce::Justification::centredLeft, 1);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (10, 0);
+            area.removeFromTop (28);
+
+            // Column layout shared by the headings and every row: name | CC
+            // number (learn button) | value | clear.
+            constexpr int nameW = 90, valueW = 50, clearW = 56, gap = 6;
+
+            auto headings = area.removeFromTop (20);
+            headings.removeFromLeft (nameW);
+            headings.removeFromRight (clearW + gap);
+            valueHeading.setBounds (headings.removeFromRight (valueW));
+            headings.removeFromRight (gap);
+            numberHeading.setBounds (headings);
+
+            for (auto& row : rows)
+            {
+                auto r = area.removeFromTop (34).reduced (0, 2);
+                row.name.setBounds (r.removeFromLeft (nameW));
+                row.clear.setBounds (r.removeFromRight (clearW));
+                r.removeFromRight (gap);
+                row.value.setBounds (r.removeFromRight (valueW));
+                r.removeFromRight (gap);
+                row.learn.setBounds (r);
+            }
+
+            // The single channel setting that applies to every command above.
+            auto channelRow = area.removeFromTop (34).reduced (0, 2);
+            channelLabel.setBounds (channelRow.removeFromLeft (nameW + gap + 20));
+            channelCombo.setBounds (channelRow.removeFromLeft (80));
+
+            area.removeFromTop (8);
+            resetButton.setBounds (area.removeFromTop (34).reduced (0, 2).removeFromLeft (150));
+            hint.setBounds (area.reduced (0, 4));
+        }
+
+    private:
+        struct Row
+        {
+            juce::Label name;
+            juce::TextButton learn;
+            juce::Label value;
+            juce::TextButton clear { "Clear" };
+        };
+
+        void mappingChanged()
+        {
+            // Tells the host the project has changed, as the other UI
+            // actions do via the processor's own notifier.
+            juce::AudioProcessorListener::ChangeDetails details;
+            details.nonParameterStateChanged = true;
+            processor.updateHostDisplay (details);
+            refresh();
+        }
+
+        void timerCallback() override { refresh(); }
+
+        void refresh()
+        {
+            const int learning = processor.getMidiLearnTarget();
+
+            for (int i = 0; i < TrackDeckAudioProcessor::numMidiCommands; ++i)
+            {
+                const int cc = processor.getMidiCc ((TrackDeckAudioProcessor::MidiCommand) i);
+                auto& row = rows[(size_t) i];
+
+                if (learning == i)
+                    row.learn.setButtonText ("Waiting for MIDI...");
+                else if (cc == TrackDeckAudioProcessor::midiCcUnassigned)
+                    row.learn.setButtonText ("Not set");
+                else
+                    row.learn.setButtonText ("CC " + juce::String (cc));
+
+                row.learn.setColour (juce::TextButton::buttonColourId,
+                                      learning == i ? Theme::AddTrackButton::backgroundColour
+                                                    : Theme::SecondaryButton::backgroundColour);
+                row.clear.setEnabled (cc != TrackDeckAudioProcessor::midiCcUnassigned);
+
+                // Don't overwrite what the user is in the middle of typing.
+                if (! row.value.isBeingEdited())
+                    row.value.setText (juce::String (processor.getMidiValue ((TrackDeckAudioProcessor::MidiCommand) i)),
+                                        juce::dontSendNotification);
+            }
+
+            channelCombo.setSelectedId (processor.getMidiChannel() + 1, juce::dontSendNotification);
+        }
+
+        TrackDeckAudioProcessor& processor;
+        std::array<Row, TrackDeckAudioProcessor::numMidiCommands> rows;
+        juce::TextButton resetButton { "Reset to defaults" };
+        juce::Label numberHeading, valueHeading, channelLabel, hint;
+        juce::ComboBox channelCombo;
+    };
 }
 
 //==============================================================================
@@ -235,7 +468,7 @@ void TrackDeckAudioProcessorEditor::TrackRow::setRow (int slotIndex, int newDisp
     {
         // Adjacent pairs only (1+2, 3+4, ...) - stereo channels are always
         // kept together, so this is the only choice offered.
-        for (int pair = 0; pair * 2 + 1 < TrackDeckAudioProcessor::maxOutputChannels; ++pair)
+        for (int pair = 0; pair * 2 + 1 < editorOwner.processor.getNumOutputs(); ++pair)
             outputCombo.addItem (juce::String (pair * 2 + 1) + "+" + juce::String (pair * 2 + 2), pair + 1);
 
         const int leftOutput = editorOwner.processor.getSlotOutputChannel (slot, 0);
@@ -243,7 +476,7 @@ void TrackDeckAudioProcessorEditor::TrackRow::setRow (int slotIndex, int newDisp
     }
     else
     {
-        for (int i = 0; i < TrackDeckAudioProcessor::maxOutputChannels; ++i)
+        for (int i = 0; i < editorOwner.processor.getNumOutputs(); ++i)
             outputCombo.addItem (juce::String (i + 1), i + 1);
 
         outputCombo.setSelectedId (editorOwner.processor.getSlotOutputChannel (slot, 0) + 1, juce::dontSendNotification);
@@ -405,6 +638,9 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     addAndMakeVisible (addFilesButton);
     addAndMakeVisible (saveTracksButton);
     addAndMakeVisible (loadTracksButton);
+    addAndMakeVisible (midiButton);
+    addAndMakeVisible (numOutputsTag);
+    addAndMakeVisible (numOutputsCombo);
     addAndMakeVisible (helpLabel);
     addAndMakeVisible (versionLabel);
     addAndMakeVisible (trackList);
@@ -434,8 +670,22 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     loadTracksButton.setColour (juce::TextButton::buttonColourId, Theme::SecondaryButton::backgroundColour);
     loadTracksButton.setColour (juce::TextButton::textColourOffId, Theme::SecondaryButton::textColour);
 
+    midiButton.setColour (juce::TextButton::buttonColourId, Theme::SecondaryButton::backgroundColour);
+    midiButton.setColour (juce::TextButton::textColourOffId, Theme::SecondaryButton::textColour);
+
     saveTracksButton.onClick = [this] { saveTracksToFile(); };
     loadTracksButton.onClick = [this] { loadTracksFromFile(); };
+    midiButton.onClick       = [this] { showMidiPanel(); };
+
+    for (int n = TrackDeckAudioProcessor::minNumOutputs; n <= TrackDeckAudioProcessor::maxOutputChannels; n += 2)
+        numOutputsCombo.addItem (juce::String (n), n);
+
+    numOutputsCombo.setSelectedId (processor.getNumOutputs(), juce::dontSendNotification);
+    numOutputsCombo.onChange = [this]
+    {
+        processor.setNumOutputs (numOutputsCombo.getSelectedId());
+        refreshList(); // repopulates each row's Output choices
+    };
 
     helpLabel.setText ("Tap a waveform to jump every track to that time. Output selects each file's physical output(s).",
                         juce::dontSendNotification);
@@ -461,12 +711,17 @@ TrackDeckAudioProcessorEditor::TrackDeckAudioProcessorEditor (TrackDeckAudioProc
     // logical pixels - JUCE scales these to physical pixels per-monitor
     // automatically, so this doesn't need to change based on DPI.
     setResizable (true, true);
-    setResizeLimits (560, 400, 3000, 2000);
+    setResizeLimits (640, 400, 3000, 2000);
     setSize (760, 600);
     startTimerHz (30); // smooth playhead motion during playback/scrubbing
 }
 
-TrackDeckAudioProcessorEditor::~TrackDeckAudioProcessorEditor() = default;
+TrackDeckAudioProcessorEditor::~TrackDeckAudioProcessorEditor()
+{
+    // The MIDI panel is a free-standing window that holds a reference to the
+    // processor, so it must not outlive the editor that opened it.
+    midiCallOut.deleteAndZero();
+}
 
 void TrackDeckAudioProcessorEditor::paint (juce::Graphics& g)
 {
@@ -509,6 +764,11 @@ void TrackDeckAudioProcessorEditor::resized()
     saveTracksButton.setBounds (bottomRow.removeFromLeft (80));
     bottomRow.removeFromLeft (6);
     loadTracksButton.setBounds (bottomRow.removeFromLeft (80));
+    bottomRow.removeFromLeft (6);
+    midiButton.setBounds (bottomRow.removeFromLeft (70));
+    bottomRow.removeFromLeft (10);
+    numOutputsTag.setBounds (bottomRow.removeFromLeft (60));
+    numOutputsCombo.setBounds (bottomRow.removeFromLeft (64).reduced (0, 4));
     bottomRow.removeFromLeft (10);
     versionLabel.setBounds (bottomRow.removeFromRight (60));
     bottomRow.removeFromRight (10);
@@ -692,6 +952,7 @@ void TrackDeckAudioProcessorEditor::loadTracksFromFile()
 
         if (processor.loadTracksFromFile (file))
         {
+            numOutputsCombo.setSelectedId (processor.getNumOutputs(), juce::dontSendNotification);
             refreshAllThumbnails();
             refreshList();
         }
@@ -702,6 +963,12 @@ void TrackDeckAudioProcessorEditor::loadTracksFromFile()
                                                       "That didn't look like a valid TrackDeck .tracks file. Nothing was changed.");
         }
     });
+}
+
+void TrackDeckAudioProcessorEditor::showMidiPanel()
+{
+    midiCallOut = &juce::CallOutBox::launchAsynchronously (std::make_unique<MidiPanel> (processor),
+                                                            midiButton.getScreenBounds(), nullptr);
 }
 
 void TrackDeckAudioProcessorEditor::refreshAllThumbnails()

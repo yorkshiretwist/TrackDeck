@@ -125,6 +125,7 @@ private:
     void chooseAndLoadFiles();
     void saveTracksToFile();
     void loadTracksFromFile();
+    void showMidiPanel();
     void refreshAllThumbnails(); // re-syncs every AudioThumbnail with the processor's current slots - used after a full .tracks load
     void refreshList();
     void updateTransportButtonStates();
@@ -144,6 +145,15 @@ private:
     // file on disk - entirely separate from the host's own project save.
     juce::TextButton saveTracksButton { "Save" };
     juce::TextButton loadTracksButton { "Load" };
+
+    // Opens the panel for viewing/changing which MIDI CCs trigger Play,
+    // Pause, Stop and Play/Pause (including MIDI learn).
+    juce::TextButton midiButton { "MIDI" };
+    juce::Component::SafePointer<juce::CallOutBox> midiCallOut;
+
+    // How many of the plugin's audio outputs are in use (2-32, even).
+    juce::Label numOutputsTag { {}, "Outputs" };
+    juce::ComboBox numOutputsCombo;
 
     juce::Label helpLabel;
     juce::Label versionLabel; // small "vX.Y.Z" text in the bottom bar, next to the help text

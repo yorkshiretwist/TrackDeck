@@ -26,7 +26,7 @@ concern, handled in `CMakeLists.txt`.
 | Only loaded tracks shown; 16-track limit with a friendly error | `TrackDeckAudioProcessorEditor::getNumRows()` rebuilds a `visibleSlots` list of just the currently-loaded slots each time, so empty slots take up no space in the UI; the track number shown is each track's position in that visible list (1, 2, 3...), not its underlying slot index. `chooseAndLoadFiles()` stops loading once all 16 slots are full and shows "Sorry, only 16 tracks can be loaded." via `AlertWindow::showMessageBoxAsync()`; the Add Track button also disables itself once the limit is reached |
 | WAV / MP3 / FLAC support | `AudioFormatManager::registerBasicFormats()` in `PluginProcessor`, with `JUCE_USE_FLAC=1` and `JUCE_USE_MP3AUDIOFORMAT=1` set in `CMakeLists.txt` |
 | Synchronous play | `PluginProcessor::startPlayback()` sets every loaded file's read position to the same shared transport time, then all slots are pulled in the *same* `processBlock()` call each cycle, so they stay sample-locked |
-| Stereo → 2 outputs, mono → 1 output, by default | The plugin declares `maxOutputChannels` (32) **mono** output buses at construction (`buildBusesProperties()`). When a file loads, `assignDefaultOutputs()` gives it the next free consecutive block of output buses matching its channel count — 2 for stereo, 1 for mono |
+| Stereo → 2 outputs, mono → 1 output, by default | The plugin declares `maxOutputChannels` (32) **mono** output buses at construction (`buildBusesProperties()`), of which only the first `defaultNumOutputs` (8) are enabled. The user picks 2–32 (even) from the "Outputs" drop-list; `setNumOutputs()` enables/disables the buses (where the host allows) and the choice is saved in the host state and as `outputs:` in `.tracks` files. When a file loads, `assignDefaultOutputs()` gives it the next free consecutive block of output buses matching its channel count — 2 for stereo, 1 for mono |
 | Output(s) selectable per file in the UI | Each `TrackRow` shows a single "Output" combo box: for a mono file it lists individual outputs (1, 2, 3...); for a stereo file it lists adjacent pairs (1+2, 3+4, ...), since stereo channels are always kept together. Changing it calls `TrackDeckAudioProcessor::setSlotOutputChannel()` (mono) or `setSlotOutputPair()` (stereo), which re-routes immediately, live |
 | Mute / remove per file | `TrackRow` in `PluginEditor.cpp` — mute toggle calls `setSlotMuted()`, remove button calls `removeSlot()` |
 | Per-track volume | Each `TrackRow` has a `juce::Slider` spanning the full width of the right-hand column, with mute/output/delete stacked below it. `FilePlayer::fillBlock()` applies the gain every block (0.0-1.0 linear), independent of mute, so unmuting always reflects the current fader position. The value is included in `buildStateTree()`, so it's saved/restored via both the host project mechanism and manual `.tracks` files (see below) exactly like file paths, mute state, and output routing |
@@ -603,6 +603,62 @@ tracks:
   1-based display. A mono file has one entry, a stereo file has two
   (always adjacent, per the pairing model — see "Output routing" above).
 - An empty configuration is written as `tracks: []`.
+- A `midi:` block above `tracks:` holds the CC assigned to each transport
+  command (`play`, `pause`, `stop`, `toggle`), each a number 0-127 or `none`,
+  plus the CC value it waits for (`playValue`, ...; 0-127, default 127), and
+  a single `channel:` (`any` or 1-16) shared by all four commands:
+
+  ```yaml
+  midi:
+    play: 80
+    playValue: 127
+    pause: 81
+    pauseValue: 127
+    stop: 82
+    stopValue: 127
+    toggle: 83
+    toggleValue: 127
+    channel: 3
+  ```
+
+  The block is optional on load: a file without it (including files from
+  before MIDI support) leaves the current mapping alone; a command with a
+  number but no `...Value` line gets 127, and a missing `channel:` leaves the
+  current channel alone, since the mapping describes the user's hardware rather than a set of tracks.
+
+### MIDI transport control
+
+`acceptsMidi()` is true (`NEEDS_MIDI_INPUT TRUE` in CMake), so VST3/AU expose
+an event input and the CLAP wrapper a note port; the standalone wrapper
+provides its own MIDI input selector. `processBlock()` passes every
+controller message to `handleMidiCc()`, which:
+
+- fires a command only when the message's CC number **and** value both
+  exactly equal that command's assigned pair (`midiCcs` / `midiValues`).
+  There is no threshold or edge detection, so the same number with another
+  value (e.g. the 0 sent on footswitch release) does nothing;
+- first checks the MIDI channel against the one shared `midiChannel` setting
+  (all commands use it; 0 = any channel);
+- calls `startPlayback()` / `pausePlayback()` / `stopPlayback()` /
+  `togglePlayback()` directly on the audio thread. That's safe: they only
+  touch atomics and `FilePlayer::setPosition()`, which takes the same lock
+  `fillBlock()` already holds on that thread (auto-stop does the same).
+  Commands take effect from the start of the block.
+- ignores a command for a state the transport is already in: Play while
+  playing, Pause while not playing, Stop while stopped (not playing with
+  the position at zero — Stop while *paused* still rewinds). Play/Pause
+  toggle always acts. Implemented in `triggerMidiCommand()`.
+
+The CC for each `MidiCommand` lives in `midiCcs` (atomics; defaults 80-83;
+`-1` = unassigned) and `midiValues` (default 127). One CC message can fire
+only one command, so setting a number or value clears any other command
+with the identical pair (`unassignDuplicatesOf()`); the same number with
+different values is allowed. **MIDI learn** (`beginMidiLearn()`) makes the
+next CC message of any value set the number and value instead of firing it; because that
+happens on the audio thread, it uses an `AsyncUpdater` to tell the host the
+state changed. The editor's **MIDI** button opens `MidiPanel` (a
+`CallOutBox` in `PluginEditor.cpp`) which polls the processor to show
+learn state.
 
 `TrackDeckAudioProcessor::stateTreeToYaml()`/`yamlToStateTree()` implement
 this — intentionally **not** a general-purpose YAML parser, just enough to
@@ -653,6 +709,6 @@ separately, same as after any other plugin state change.
 - `maxTracks` (16, in `PluginProcessor.h`) is how many files can be loaded at
   once; `maxOutputChannels` (32) is how many physical mono outputs the
   plugin exposes. Raise either if you need more — just be aware very high
-  counts can be awkward for some hosts to display/route, and every combo box
-  in the UI lists all `maxOutputChannels` options, so a much larger number
+  counts can be awkward for some hosts to display/route, and the per-track
+  combo boxes list up to `getNumOutputs()` options, so a much larger number
   will make those dropdowns unwieldy.

@@ -39,6 +39,21 @@ together, every time.
   thing to a `.tracks` file and load it again anytime — on this machine, on
   another one, or shared with someone else. This is separate from (and
   doesn't interfere with) your DAW's own project save.
+- **MIDI control of the transport.** Trigger Play, Pause, Stop, and
+  Play/Pause from a footswitch or controller with MIDI CC messages (on any
+  MIDI channel by default). Each command fires only on an exact CC number
+  *and* value, and on the chosen MIDI channel (Any, or 1 to 16; one setting
+  for all four commands).
+  The defaults are CC 80 (Play), 81 (Pause), 82 (Stop), and 83 (Play/Pause
+  toggle), all with value 127; the same CC number with any other value, such
+  as the 0 a footswitch sends on release, does nothing. If your hardware
+  sends something different, click **MIDI**, click the command you want to
+  change, then press the control on your hardware to learn its CC number and
+  value, or type the number and value in directly and pick the channel from
+  the dropdown below them. Learning leaves the channel as it is. The assignments are saved
+  in your `.tracks` files and your DAW project. In a DAW, the MIDI track must
+  be routed to TrackDeck; the standalone app has a MIDI input selector in its
+  Options.
 - **Resizable window** that adapts to however much space you give it.
 - **Looks right on any screen.** Whether you're on a laptop, a high-resolution
   display, or moving the window between monitors with different scaling,

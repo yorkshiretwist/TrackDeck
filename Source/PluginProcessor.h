@@ -41,11 +41,40 @@
     is ever written to disk automatically - this only happens when the user
     explicitly saves or loads a file from the UI.
 */
-class TrackDeckAudioProcessor : public juce::AudioProcessor
+class TrackDeckAudioProcessor : public juce::AudioProcessor,
+                                 private juce::AsyncUpdater
 {
 public:
     static constexpr int maxTracks = 16;
-    static constexpr int maxOutputChannels = 32;
+    static constexpr int maxOutputChannels = 32;     // buses declared to the host
+    static constexpr int defaultNumOutputs = 8;      // buses enabled for a new instance
+    static constexpr int minNumOutputs = 2;
+
+    /** How many of the declared output buses are in use (always even, between
+        minNumOutputs and maxOutputChannels). Routing choices in the UI are
+        limited to this many, and the unused buses are disabled where the host
+        allows it. Saved in both the host state and .tracks files. */
+    int getNumOutputs() const { return numOutputs.load(); }
+    void setNumOutputs (int newNumOutputs);
+
+    /** The transport actions that can be triggered by a MIDI CC. */
+    enum class MidiCommand { play = 0, pause, stop, toggle };
+    static constexpr int numMidiCommands = 4;
+
+    /** CC number meaning "no CC assigned" for a command. */
+    static constexpr int midiCcUnassigned = -1;
+
+    /** Default CC for each command (General Purpose Controller 5-8, which
+        are on/off switch-type CCs that nothing sends unprompted). */
+    static int getDefaultMidiCc (MidiCommand command) { return 80 + (int) command; }
+
+    /** Default CC value for every command: a switch's "on" value. */
+    static constexpr int defaultMidiValue = 127;
+
+    /** MIDI channel setting meaning "respond on any channel"; otherwise a
+        channel number from 1 to 16. This is the default. */
+    static constexpr int midiChannelAny = 0;
+    static juce::String getMidiCommandName (MidiCommand command);
 
     TrackDeckAudioProcessor();
     ~TrackDeckAudioProcessor() override;
@@ -60,7 +89,7 @@ public:
     bool hasEditor() const override { return true; }
 
     const juce::String getName() const override { return JucePlugin_Name; }
-    bool acceptsMidi() const override  { return false; }
+    bool acceptsMidi() const override  { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 0.0; }
@@ -165,9 +194,65 @@ public:
         return currentSampleRate > 0.0 ? (double) playbackPositionSamples.load() / currentSampleRate : 0.0;
     }
 
+    //==============================================================================
+    // MIDI transport control. Each command is triggered by one exact CC
+    // number AND one exact CC value, on the one MIDI channel shared by all
+    // commands (any channel by default, or one chosen channel 1-16); a CC
+    // message with the same number but a different value (such as the 0 a
+    // footswitch sends on release) or on another channel does nothing. The
+    // assignments and the channel are saved with the rest of the state, in
+    // both the host project and .tracks files.
+
+    /** The CC number (0-127) assigned to `command`, or midiCcUnassigned. */
+    int getMidiCc (MidiCommand command) const;
+
+    /** The CC value (0-127) that `command` waits for. */
+    int getMidiValue (MidiCommand command) const;
+
+    /** The MIDI channel all commands listen on: midiChannelAny, or 1-16. */
+    int getMidiChannel() const;
+
+    /** Sets the channel all commands listen on (midiChannelAny, or 1-16). */
+    void setMidiChannel (int channel);
+
+    /** Assigns a CC number (0-127, or midiCcUnassigned) to `command`. */
+    void setMidiCc (MidiCommand command, int cc);
+
+    /** Sets the CC value (0-127) `command` waits for. */
+    void setMidiValue (MidiCommand command, int value);
+
+    /** Resets every command to its default CC number and value 127, and the
+        channel to any. */
+    void resetMidiCcsToDefaults();
+
+    /** Arms MIDI learn: the next CC message received (any value, any
+        channel) sets both the number and the value of `command`; the channel
+        setting is left as it is. Arming a different command replaces the
+        previous request. */
+    void beginMidiLearn (MidiCommand command);
+    void cancelMidiLearn();
+
+    /** The command currently waiting for a CC, or -1 if MIDI learn isn't
+        armed (including after it has just captured a CC). */
+    int getMidiLearnTarget() const { return midiLearnTarget.load(); }
+
     juce::AudioFormatManager formatManager;
 
 private:
+    void handleAsyncUpdate() override; // tells the host about a mapping learned on the audio thread
+
+    /** Audio thread only. Applies one incoming CC message: completes MIDI
+        learn if armed, otherwise fires whichever command the CC is
+        assigned to. */
+    void handleMidiCc (int channel, int cc, int value);
+    void triggerMidiCommand (MidiCommand command);
+
+    /** After `command`'s number or value changed: any other command with
+        the identical number AND value is unassigned, so one CC message can
+        never fire two commands. (Different values on the same number are
+        fine.) */
+    void unassignDuplicatesOf (MidiCommand command);
+
     static juce::String busNameForOutput (int index) { return "Output " + juce::String (index + 1); }
     static BusesProperties buildBusesProperties();
 
@@ -216,6 +301,7 @@ private:
 
     juce::OwnedArray<FilePlayer> players;
 
+    std::atomic<int> numOutputs { defaultNumOutputs };
     std::atomic<bool> playing { false };
     std::atomic<juce::int64> playbackPositionSamples { 0 };
 
@@ -227,6 +313,11 @@ private:
         means "nothing loaded" (or not yet computed), in which case
         processBlock() does not auto-stop. */
     std::atomic<juce::int64> longestLoadedLengthSamples { 0 };
+
+    std::array<std::atomic<int>, numMidiCommands> midiCcs;    // CC number per MidiCommand, or midiCcUnassigned
+    std::array<std::atomic<int>, numMidiCommands> midiValues; // CC value per MidiCommand
+    std::atomic<int> midiChannel { midiChannelAny };           // the channel all commands listen on: midiChannelAny or 1-16
+    std::atomic<int> midiLearnTarget { -1 };                  // MidiCommand index awaiting a CC, or -1
 
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;

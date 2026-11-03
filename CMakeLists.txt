@@ -6,6 +6,25 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---------------------------------------------------------------------------
+# TRACKDECK_BUILD_PLUGIN: build the VST3 / AU / CLAP / Standalone plugin (needs JUCE).
+# TRACKDECK_BUILD_TESTS:  build the unit tests for the JUCE-free code in
+#                         Source/Engine, which do not need JUCE. Turn the plugin
+#                         OFF to build only the tests, e.g.
+#                           cmake -B build -DTRACKDECK_BUILD_PLUGIN=OFF
+# ---------------------------------------------------------------------------
+option(TRACKDECK_BUILD_PLUGIN "Build the plugin (requires JUCE, see developers.md)" ON)
+option(TRACKDECK_BUILD_TESTS  "Build the unit tests" ON)
+
+if (TRACKDECK_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(Tests)
+endif()
+
+if (NOT TRACKDECK_BUILD_PLUGIN)
+    return()
+endif()
+
+# ---------------------------------------------------------------------------
 # ASIO support (Windows only, Standalone build only — see developers.md's
 # "ASIO support on Windows" section for full setup instructions).
 #
@@ -67,6 +86,8 @@ target_sources(TrackDeck
         Source/PluginProcessor.cpp
         Source/PluginEditor.cpp
 )
+
+target_include_directories(TrackDeck PRIVATE Source)
 
 target_compile_definitions(TrackDeck
     PUBLIC

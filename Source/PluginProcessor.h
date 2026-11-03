@@ -2,6 +2,7 @@
 
 #include <JuceHeader.h>
 #include "FilePlayer.h"
+#include "Engine/MidiControl.h"
 
 /**
     A plugin with no audio input and `maxOutputChannels` mono output buses
@@ -57,23 +58,14 @@ public:
     int getNumOutputs() const { return numOutputs.load(); }
     void setNumOutputs (int newNumOutputs);
 
-    /** The transport actions that can be triggered by a MIDI CC. */
-    enum class MidiCommand { play = 0, pause, stop, toggle };
-    static constexpr int numMidiCommands = 4;
-
-    /** CC number meaning "no CC assigned" for a command. */
-    static constexpr int midiCcUnassigned = -1;
-
-    /** Default CC for each command (General Purpose Controller 5-8, which
-        are on/off switch-type CCs that nothing sends unprompted). */
-    static int getDefaultMidiCc (MidiCommand command) { return 80 + (int) command; }
-
-    /** Default CC value for every command: a switch's "on" value. */
-    static constexpr int defaultMidiValue = 127;
-
-    /** MIDI channel setting meaning "respond on any channel"; otherwise a
-        channel number from 1 to 16. This is the default. */
-    static constexpr int midiChannelAny = 0;
+    // The MIDI transport control settings and matching live in Engine/MidiControl.h
+    // (no JUCE, unit tested); these re-export its names for the rest of the plugin.
+    using MidiCommand = trackdeck::MidiCommand;
+    static constexpr int numMidiCommands = trackdeck::numMidiCommands;
+    static constexpr int midiCcUnassigned = trackdeck::midiCcUnassigned;
+    static constexpr int defaultMidiValue = trackdeck::defaultMidiValue;
+    static constexpr int midiChannelAny = trackdeck::midiChannelAny;
+    static int getDefaultMidiCc (MidiCommand command) { return trackdeck::defaultMidiCc (command); }
     static juce::String getMidiCommandName (MidiCommand command);
 
     TrackDeckAudioProcessor();
@@ -234,7 +226,7 @@ public:
 
     /** The command currently waiting for a CC, or -1 if MIDI learn isn't
         armed (including after it has just captured a CC). */
-    int getMidiLearnTarget() const { return midiLearnTarget.load(); }
+    int getMidiLearnTarget() const { return midiControl.getLearnTarget(); }
 
     juce::AudioFormatManager formatManager;
 
@@ -246,12 +238,6 @@ private:
         assigned to. */
     void handleMidiCc (int channel, int cc, int value);
     void triggerMidiCommand (MidiCommand command);
-
-    /** After `command`'s number or value changed: any other command with
-        the identical number AND value is unassigned, so one CC message can
-        never fire two commands. (Different values on the same number are
-        fine.) */
-    void unassignDuplicatesOf (MidiCommand command);
 
     static juce::String busNameForOutput (int index) { return "Output " + juce::String (index + 1); }
     static BusesProperties buildBusesProperties();
@@ -314,10 +300,7 @@ private:
         processBlock() does not auto-stop. */
     std::atomic<juce::int64> longestLoadedLengthSamples { 0 };
 
-    std::array<std::atomic<int>, numMidiCommands> midiCcs;    // CC number per MidiCommand, or midiCcUnassigned
-    std::array<std::atomic<int>, numMidiCommands> midiValues; // CC value per MidiCommand
-    std::atomic<int> midiChannel { midiChannelAny };           // the channel all commands listen on: midiChannelAny or 1-16
-    std::atomic<int> midiLearnTarget { -1 };                  // MidiCommand index awaiting a CC, or -1
+    trackdeck::MidiControl midiControl;
 
     double currentSampleRate = 44100.0;
     int currentBlockSize = 512;

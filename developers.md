@@ -75,10 +75,15 @@ TrackDeck/
   CMakeLists.txt
   LICENSE
   Source/
+    Engine/
+      MidiControl.h       # JUCE-free MIDI transport control: settings, matching, learn (unit tested)
     FilePlayer.h         # decodes + resamples one file, handles mute/position
     Theme.h               # ALL colours/fonts/spacing constants - edit this to restyle the UI
     PluginProcessor.h/.cpp
     PluginEditor.h/.cpp
+  Tests/
+    MidiControlTests.cpp  # Catch2 unit tests for Source/Engine/MidiControl.h
+  .github/workflows/      # cmake.yml (build, pluginval, release), tests.yml (every push/PR)
   libs/
     clap-juce-extensions/ # git submodule - see "CLAP support" below
   media/                  # README screenshots
@@ -262,6 +267,21 @@ build from step 5 above by double-clicking it (macOS/Windows) or running
 with its own audio device settings (Options button/menu) where you can pick
 your sound card and test everything — file loading, sync playback, seeking,
 mute/remove — before ever touching a host.
+
+### Building only the tests (no JUCE needed)
+
+```
+cmake -B build-tests -DTRACKDECK_BUILD_PLUGIN=OFF
+cmake --build build-tests
+ctest --test-dir build-tests --output-on-failure
+```
+
+Catch2 is fetched automatically (needs network on first configure).
+`Tests/MidiControlTests.cpp` covers the MIDI transport control code in
+`Source/Engine/MidiControl.h`: exact CC number and value matching, any-channel
+versus a chosen channel, MIDI learn (capture, consume, disarm, cancel), duplicate
+unassignment, input validation and the "ignore a command for the state we're
+already in" transport rules. Add a test for any behaviour change there.
 
 ### Rebuilding after making code changes
 
@@ -631,7 +651,8 @@ tracks:
 `acceptsMidi()` is true (`NEEDS_MIDI_INPUT TRUE` in CMake), so VST3/AU expose
 an event input and the CLAP wrapper a note port; the standalone wrapper
 provides its own MIDI input selector. `processBlock()` passes every
-controller message to `handleMidiCc()`, which:
+controller message to `handleMidiCc()`, which hands it to `trackdeck::MidiControl`
+(`Source/Engine/MidiControl.h`) and:
 
 - fires a command only when the message's CC number **and** value both
   exactly equal that command's assigned pair (`midiCcs` / `midiValues`).

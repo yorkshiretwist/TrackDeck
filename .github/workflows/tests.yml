@@ -1,0 +1,35 @@
+name: trackdeck-tests
+
+# Builds and runs the unit tests for the JUCE-free MIDI control code. The tested code has no JUCE
+# dependency, so this is fast and runs on every push and pull request.
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (tests only, no JUCE)
+        run: cmake -S . -B build -DTRACKDECK_BUILD_PLUGIN=OFF -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Run tests
+        run: ctest --test-dir build -C Release --output-on-failure

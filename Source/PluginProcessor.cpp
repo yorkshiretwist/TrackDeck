@@ -172,72 +172,47 @@ juce::String TrackDeckAudioProcessor::getMidiCommandName (MidiCommand command)
 
 int TrackDeckAudioProcessor::getMidiCc (MidiCommand command) const
 {
-    return midiCcs[(size_t) command].load();
+    return midiControl.getCc (command);
 }
 
 int TrackDeckAudioProcessor::getMidiValue (MidiCommand command) const
 {
-    return midiValues[(size_t) command].load();
+    return midiControl.getValue (command);
 }
 
 int TrackDeckAudioProcessor::getMidiChannel() const
 {
-    return midiChannel.load();
+    return midiControl.getChannel();
 }
 
 void TrackDeckAudioProcessor::setMidiChannel (int channel)
 {
-    midiChannel.store (juce::isPositiveAndBelow (channel, 17) ? channel : midiChannelAny);
+    midiControl.setChannel (channel);
 }
 
 void TrackDeckAudioProcessor::setMidiCc (MidiCommand command, int cc)
 {
-    if (! juce::isPositiveAndBelow (cc, 128))
-        cc = midiCcUnassigned;
-
-    midiCcs[(size_t) command].store (cc);
-    unassignDuplicatesOf (command);
+    midiControl.setCc (command, cc);
 }
 
 void TrackDeckAudioProcessor::setMidiValue (MidiCommand command, int value)
 {
-    midiValues[(size_t) command].store (juce::jlimit (0, 127, value));
-    unassignDuplicatesOf (command);
-}
-
-void TrackDeckAudioProcessor::unassignDuplicatesOf (MidiCommand command)
-{
-    const int cc = midiCcs[(size_t) command].load();
-
-    if (cc == midiCcUnassigned)
-        return;
-
-    const int value = midiValues[(size_t) command].load();
-
-    for (size_t i = 0; i < midiCcs.size(); ++i)
-        if (i != (size_t) command && midiCcs[i].load() == cc && midiValues[i].load() == value)
-            midiCcs[i].store (midiCcUnassigned);
+    midiControl.setValue (command, value);
 }
 
 void TrackDeckAudioProcessor::resetMidiCcsToDefaults()
 {
-    for (int i = 0; i < numMidiCommands; ++i)
-    {
-        midiCcs[(size_t) i].store (getDefaultMidiCc ((MidiCommand) i));
-        midiValues[(size_t) i].store (defaultMidiValue);
-    }
-
-    midiChannel.store (midiChannelAny);
+    midiControl.resetToDefaults();
 }
 
 void TrackDeckAudioProcessor::beginMidiLearn (MidiCommand command)
 {
-    midiLearnTarget.store ((int) command);
+    midiControl.beginLearn (command);
 }
 
 void TrackDeckAudioProcessor::cancelMidiLearn()
 {
-    midiLearnTarget.store (-1);
+    midiControl.cancelLearn();
 }
 
 void TrackDeckAudioProcessor::handleAsyncUpdate()
@@ -247,50 +222,22 @@ void TrackDeckAudioProcessor::handleAsyncUpdate()
 
 void TrackDeckAudioProcessor::handleMidiCc (int channel, int cc, int value)
 {
-    if (! juce::isPositiveAndBelow (cc, 128))
-        return;
-
-    const int learning = midiLearnTarget.load();
-
-    if (learning >= 0)
-    {
-        // The message that completes learning is consumed, not also acted on.
-        // It sets the value as well as the number, so whatever the control
-        // sends when pressed is exactly what will trigger the command.
-        midiCcs[(size_t) learning].store (cc);
-        midiValues[(size_t) learning].store (juce::jlimit (0, 127, value));
-        unassignDuplicatesOf ((MidiCommand) learning);
-        midiLearnTarget.store (-1);
+    // The message that completes learning is consumed, not also acted on.
+    // Otherwise only an exact match on number and value, on the chosen channel
+    // unless that's any, triggers a command.
+    if (midiControl.handleCc (channel, cc, value, [this] (MidiCommand command) { triggerMidiCommand (command); }))
         triggerAsyncUpdate();
-        return;
-    }
-
-    // Exact match on number and value, on the chosen channel unless that's
-    // any - nothing else triggers.
-    const int wantedChannel = midiChannel.load();
-
-    if (wantedChannel != midiChannelAny && wantedChannel != channel)
-        return;
-
-    for (int i = 0; i < numMidiCommands; ++i)
-        if (midiCcs[(size_t) i].load() == cc && midiValues[(size_t) i].load() == value)
-            triggerMidiCommand ((MidiCommand) i);
 }
 
 void TrackDeckAudioProcessor::triggerMidiCommand (MidiCommand command)
 {
-    // A command asking for the state the transport is already in is ignored.
-    // "Paused" and "stopped" are both not-playing; they differ only in
-    // whether the position has been rewound to zero.
-    const bool isPlayingNow = playing.load();
-    const bool isAtStart = playbackPositionSamples.load() == 0;
-
-    switch (command)
+    switch (trackdeck::resolveTransportAction (command, playing.load(), playbackPositionSamples.load() == 0))
     {
-        case MidiCommand::play:   if (! isPlayingNow)                startPlayback();  break;
-        case MidiCommand::pause:  if (isPlayingNow)                  pausePlayback();  break;
-        case MidiCommand::stop:   if (isPlayingNow || ! isAtStart)   stopPlayback();   break;
-        case MidiCommand::toggle: togglePlayback(); break;
+        case trackdeck::TransportAction::none:   break;
+        case trackdeck::TransportAction::play:   startPlayback();  break;
+        case trackdeck::TransportAction::pause:  pausePlayback();  break;
+        case trackdeck::TransportAction::stop:   stopPlayback();   break;
+        case trackdeck::TransportAction::toggle: togglePlayback(); break;
     }
 }
 
@@ -664,11 +611,11 @@ juce::ValueTree TrackDeckAudioProcessor::buildStateTree() const
 
     for (int i = 0; i < numMidiCommands; ++i)
     {
-        state.setProperty (midiCommandKeys[i], midiCcs[(size_t) i].load(), nullptr);
-        state.setProperty (midiValueKey (i), midiValues[(size_t) i].load(), nullptr);
+        state.setProperty (midiCommandKeys[i], midiControl.getCc ((MidiCommand) i), nullptr);
+        state.setProperty (midiValueKey (i), midiControl.getValue ((MidiCommand) i), nullptr);
     }
 
-    state.setProperty (midiChannelStateKey, midiChannel.load(), nullptr);
+    state.setProperty (midiChannelStateKey, midiControl.getChannel(), nullptr);
 
     for (int i = 0; i < players.size(); ++i)
     {
@@ -718,8 +665,9 @@ void TrackDeckAudioProcessor::applyStateTree (const juce::ValueTree& state)
         if (! state.hasProperty (midiCommandKeys[i]))
             continue;
 
-        midiValues[(size_t) i].store (juce::jlimit (0, 127, (int) state.getProperty (midiValueKey (i), defaultMidiValue)));
-        setMidiCc ((MidiCommand) i, (int) state.getProperty (midiCommandKeys[i]));
+        midiControl.setCcAndValue ((MidiCommand) i,
+                                   (int) state.getProperty (midiCommandKeys[i]),
+                                   (int) state.getProperty (midiValueKey (i), defaultMidiValue));
     }
 
     if (state.hasProperty (midiChannelStateKey))

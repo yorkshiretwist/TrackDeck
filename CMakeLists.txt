@@ -78,6 +78,9 @@ target_compile_definitions(TrackDeck
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
+        # Linux: use plain X11 mouse events instead of XInput2, which plugin UIs in
+        # Reaper and Carla only partly receive (no hover, release, resize or scroll).
+        $<$<PLATFORM_ID:Linux>:JUCE_USE_XINPUT=0>
 )
 
 target_link_libraries(TrackDeck
